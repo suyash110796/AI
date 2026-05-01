@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omega-runtime"
+version = "0.2.0"
+description = "Proof-carrying runtime for tool-using AI agents with certified traces, replay verification, proof bundles, episode bundles, and system audits."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "suyash110796" }
+]
+license = { text = "Proprietary / Research Prototype" }
+keywords = [
+  "proof-carrying-runtime",
+  "agent-runtime",
+  "trace-verification",
+  "runtime-security",
+  "policy-verification",
+  "offline-replay",
+  "certified-execution"
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: Security",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+[tool.setuptools.packages.find]
+include = ["omega_runtime*"]
+
+[project.scripts]
+omega-verify-proof = "omega_runtime.cli:verify_proof_main"
+omega-verify-trace = "omega_runtime.cli:verify_trace_main"
+omega-verify-episode = "omega_runtime.cli:verify_episode_main"
+omega-audit = "omega_runtime.cli:audit_main"
+omega-system-verify = "omega_runtime.cli:system_verify_main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
