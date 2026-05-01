@@ -1,0 +1,49 @@
+﻿# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Runtime-generated artifacts
+artifacts/
+sandbox/*
+traces/*.jsonl
+traces/traces/
+
+# Keep folder placeholders
+!sandbox/.gitkeep
+!traces/.gitkeep
+
+# Temporary patch scripts
+_apply_*.py
+_fix_*.py
+_patch_*.py
+_install_*.py
+apply_trace_chain_milestone2.py
+
+# Backup files created during patching
+*.bak*
+*.backup
+
+# Secret/private keys
+keys/*private*
+keys/*.pem
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

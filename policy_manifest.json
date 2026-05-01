@@ -1,0 +1,32 @@
+{
+  "manifest_id": "omega-runtime-policy-manifest",
+  "policy": {
+    "allowed_tools": [
+      "sandbox.read_file"
+    ],
+    "sandbox_root": "sandbox"
+  },
+  "policy_hash": "1231b5f71b97ca631553008bfe37514accce946ac6742d8cbbc5b8cf7e70700c",
+  "policy_spec": {
+    "allowed_tools": [
+      "sandbox.read_file",
+      "sandbox.write_file"
+    ],
+    "invariants": [
+      "I004_POLICY_HASH_BINDING",
+      "I007_POLICY_ADMISSION",
+      "I009_POLICY_MANIFEST_INTEGRITY"
+    ],
+    "policy_id": "omega-default-policy",
+    "rules": {
+      "sandbox_paths_must_remain_inside_sandbox": true,
+      "tool_must_be_allowlisted": true
+    },
+    "sandbox_root": "sandbox",
+    "version": 1
+  },
+  "policy_spec_hash": "1231b5f71b97ca631553008bfe37514accce946ac6742d8cbbc5b8cf7e70700c",
+  "signature": "17172e0b8f5ed73c4ca1a953f5397305e1638492351c2d7ce4ac2af007be1680",
+  "signature_algorithm": "HMAC-SHA256",
+  "version": 1
+}

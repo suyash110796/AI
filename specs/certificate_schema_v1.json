@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omega Runtime v0.1 Certificate",
+  "type": "object",
+  "required": [
+    "payload",
+    "payload_hash",
+    "signature",
+    "key_id"
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "certificate_id",
+        "run_id",
+        "step_index",
+        "tool",
+        "action_hash",
+        "policy_hash",
+        "nonce",
+        "issued_at"
+      ],
+      "properties": {
+        "certificate_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "step_index": {
+          "type": "integer"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "action_hash": {
+          "type": "string"
+        },
+        "policy_hash": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "string"
+        },
+        "issued_at": {
+          "type": "string"
+        }
+      }
+    },
+    "payload_hash": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "key_id": {
+      "type": "string"
+    }
+  }
+}
