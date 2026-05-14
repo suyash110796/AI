@@ -230,3 +230,119 @@ def verify_system_endpoint(request: SystemVerifyRequest) -> dict[str, Any]:
     )
     payload["api_version"] = API_VERSION
     return _jsonable(payload)
+
+
+# --- OMEGA_V040_DASHBOARD_ROUTE_ALIASES_START ---
+#
+# Dashboard compatibility routes.
+#
+# The dashboard UI calls one of these route names when the user presses
+# "Verify system". These aliases intentionally all resolve to the same
+# system-verification function so the UI cannot drift away from the API.
+#
+# Supported payload shapes:
+#   {
+#     "proof_bundle_path": "artifacts/proof_bundle_demo.json",
+#     "trace_path": "traces/replay-verifier-demo.jsonl"
+#   }
+#
+# Also accepted:
+#   {
+#     "proof_bundles": ["..."],
+#     "traces": ["..."]
+#   }
+
+from typing import Any as _OmegaDashboardAny
+
+from fastapi import Request as _OmegaDashboardRequest
+
+from omega_runtime.core.system_verifier import (
+    verify_runtime_system as _omega_dashboard_verify_runtime_system,
+)
+
+
+def _omega_dashboard_as_path_list(value: _OmegaDashboardAny) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+
+    if isinstance(value, (list, tuple)):
+        paths: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                paths.append(text)
+        return paths
+
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _omega_dashboard_extract_paths(
+    payload: dict[str, _OmegaDashboardAny],
+) -> tuple[list[str], list[str]]:
+    proof_value = (
+        payload.get("proof_bundles")
+        or payload.get("proof_bundle_paths")
+        or payload.get("proof_bundle_path")
+        or payload.get("proof_bundle")
+    )
+
+    trace_value = (
+        payload.get("traces")
+        or payload.get("trace_paths")
+        or payload.get("trace_path")
+        or payload.get("trace")
+    )
+
+    return (
+        _omega_dashboard_as_path_list(proof_value),
+        _omega_dashboard_as_path_list(trace_value),
+    )
+
+
+async def _omega_dashboard_read_payload(
+    request: _OmegaDashboardRequest,
+) -> dict[str, _OmegaDashboardAny]:
+    payload: dict[str, _OmegaDashboardAny] = {}
+
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            payload.update(body)
+    except Exception:
+        pass
+
+    for key, value in request.query_params.items():
+        payload.setdefault(key, value)
+
+    return payload
+
+
+@app.post("/verify/system")
+@app.post("/system/verify")
+@app.post("/runtime/verify")
+@app.post("/audit/system")
+async def omega_dashboard_verify_system_alias(
+    request: _OmegaDashboardRequest,
+) -> dict[str, _OmegaDashboardAny]:
+    payload = await _omega_dashboard_read_payload(request)
+    proof_bundles, traces = _omega_dashboard_extract_paths(payload)
+
+    report = _omega_dashboard_verify_runtime_system(
+        proof_bundles=proof_bundles,
+        traces=traces,
+    )
+
+    report.setdefault("route_alias", str(request.url.path))
+    report.setdefault("requested_proof_bundles", proof_bundles)
+    report.setdefault("requested_traces", traces)
+
+    return report
+
+# --- OMEGA_V040_DASHBOARD_ROUTE_ALIASES_END ---
