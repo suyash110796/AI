@@ -346,3 +346,40 @@ async def omega_dashboard_verify_system_alias(
     return report
 
 # --- OMEGA_V040_DASHBOARD_ROUTE_ALIASES_END ---
+# OMEGA_FAILURE_LAB_API_V1_BEGIN
+from pathlib import Path as _OmegaFailureLabPath
+
+from fastapi.responses import HTMLResponse as _OmegaFailureLabHTMLResponse
+from pydantic import BaseModel as _OmegaFailureLabBaseModel
+
+from omega_runtime.failure_lab import (
+    FAILURE_LAB_TYPE as _OMEGA_FAILURE_LAB_TYPE,
+    FAILURE_LAB_VERSION as _OMEGA_FAILURE_LAB_VERSION,
+    failure_lab_dashboard_html as _omega_failure_lab_dashboard_html,
+    run_failure_lab as _omega_run_failure_lab,
+)
+
+
+class _OmegaFailureLabRequest(_OmegaFailureLabBaseModel):
+    output_dir: str = "artifacts/failure_lab"
+
+
+@app.get("/failure-lab/status")
+def omega_failure_lab_status() -> dict:
+    return {
+        "accepted": True,
+        "failure_lab_type": _OMEGA_FAILURE_LAB_TYPE,
+        "failure_lab_version": _OMEGA_FAILURE_LAB_VERSION,
+        "reason": "failure lab route healthy",
+    }
+
+
+@app.post("/failure-lab/run")
+def omega_failure_lab_run(request: _OmegaFailureLabRequest) -> dict:
+    return _omega_run_failure_lab(_OmegaFailureLabPath(request.output_dir))
+
+
+@app.get("/failure-lab", response_class=_OmegaFailureLabHTMLResponse)
+def omega_failure_lab_page() -> str:
+    return _omega_failure_lab_dashboard_html()
+# OMEGA_FAILURE_LAB_API_V1_END
