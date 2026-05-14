@@ -1357,3 +1357,55 @@ This is the foundation for building safer, more accountable, and more formally c
 
 
 ```
+
+
+## v0.6.0 — Failure Lab Dashboard
+
+The v0.6.0 milestone connects the failure demonstration lab directly to the browser UI.
+
+### What this adds
+
+- `GET /failure-lab` — browser dashboard for demonstrating caught failures.
+- `GET /ui/failure-lab` — alias route for the same dashboard.
+- `POST /failure-lab/run` — runs the failure lab from the API and returns the machine-readable report.
+- `GET /failure-lab/report` — returns the latest generated failure lab report, if present.
+- `omega_runtime/failure_lab_dashboard.py` — isolated dashboard route module.
+- `tests/test_failure_lab_dashboard.py` — route and API contract tests.
+
+### Why this matters
+
+The failure lab is the simplest way to show the value of the runtime.
+
+A normal agent log can claim that a tool call succeeded. OMEGA goes further:
+
+1. It checks whether the action was allowed.
+2. It checks whether the action was bound to a certificate.
+3. It checks whether the execution emitted receipts.
+4. It checks whether the trace can be replayed offline.
+5. It checks whether tampering is detected after the fact.
+6. It checks whether the whole run survives system-level verification.
+
+### Run the dashboard
+
+```powershell
+python scripts/run_api.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000/failure-lab
+```
+
+To generate a fresh failure report from the API:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/failure-lab/run
+```
+
+To read the latest generated report:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/failure-lab/report
+```
+

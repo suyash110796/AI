@@ -383,3 +383,11 @@ def omega_failure_lab_run(request: _OmegaFailureLabRequest) -> dict:
 def omega_failure_lab_page() -> str:
     return _omega_failure_lab_dashboard_html()
 # OMEGA_FAILURE_LAB_API_V1_END
+
+# OMEGA v0.6.0 failure lab dashboard route registration
+try:
+    from omega_runtime.failure_lab_dashboard import register_failure_lab_dashboard_routes
+
+    register_failure_lab_dashboard_routes(app)
+except Exception as exc:  # pragma: no cover - defensive startup fallback
+    app.state.failure_lab_dashboard_registration_error = repr(exc)
