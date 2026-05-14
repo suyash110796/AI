@@ -104,7 +104,9 @@ class SystemVerifyRequest(BaseModel):
     traces: list[str] = Field(default_factory=list)
 
 
+from omega_runtime.ui_dashboard import register_dashboard_routes
 app = FastAPI(
+
     title="OMEGA Runtime API",
     version="0.3.0",
     description=(
@@ -113,6 +115,8 @@ app = FastAPI(
         "trace replay verification, and system verification."
     ),
 )
+
+register_dashboard_routes(app)
 
 
 @app.get("/")
