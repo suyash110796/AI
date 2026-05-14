@@ -28,7 +28,11 @@ def test_signature_tamper_rejected():
     assert ok, reason
     assert cert is not None
 
-    tampered = replace(cert, signature="A" + cert.signature[1:])
+    replacement_prefix = "B" if cert.signature.startswith("A") else "A"
+    tampered_signature = replacement_prefix + cert.signature[1:]
+    assert tampered_signature != cert.signature
+
+    tampered = replace(cert, signature=tampered_signature)
     result = proxy.execute(action, tampered)
 
     assert result.accepted is False
