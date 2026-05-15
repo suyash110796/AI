@@ -398,3 +398,11 @@ try:
     register_action_playground_routes(app)
 except Exception as exc:
     app.state.action_playground_registration_error = repr(exc)
+
+# OMEGA v0.9.0 evidence pack UI route registration
+try:
+    from omega_runtime.evidence_pack_ui import register_evidence_pack_ui_routes
+
+    register_evidence_pack_ui_routes(app)
+except Exception as exc:  # pragma: no cover - defensive startup fallback
+    app.state.evidence_pack_ui_registration_error = repr(exc)
