@@ -9,7 +9,7 @@ dependencies = [
   "uvicorn>=0.30",
 ]
 name = "omega-runtime"
-version = "0.6.0"
+version = "0.7.0"
 description = "Proof-carrying runtime for tool-using AI agents with certified traces, replay verification, proof bundles, episode bundles, and system audits."
 readme = "README.md"
 requires-python = ">=3.11"

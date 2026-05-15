@@ -391,3 +391,10 @@ try:
     register_failure_lab_dashboard_routes(app)
 except Exception as exc:  # pragma: no cover - defensive startup fallback
     app.state.failure_lab_dashboard_registration_error = repr(exc)
+
+# OMEGA v0.7.0 action playground route registration
+try:
+    from omega_runtime.action_playground import register_action_playground_routes
+    register_action_playground_routes(app)
+except Exception as exc:
+    app.state.action_playground_registration_error = repr(exc)

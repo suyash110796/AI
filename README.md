@@ -1409,3 +1409,22 @@ To read the latest generated report:
 Invoke-RestMethod http://127.0.0.1:8000/failure-lab/report
 ```
 
+
+
+## v0.7.0 — Agent Action Playground
+
+Routes added:
+
+- GET /action-playground
+- GET /action-playground/scenarios
+- POST /action-playground/run
+- POST /action-playground/run-all
+- GET /action-playground/report
+
+Run:
+
+    python scripts/run_api.py
+
+Open:
+
+    http://127.0.0.1:8000/action-playground
