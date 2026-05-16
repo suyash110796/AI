@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 RELEASE_CHECK_VERSION = "OMEGA_RELEASE_CHECK_V1"
-RELEASE_VERSION = "1.0.0rc1"
+RELEASE_VERSION = "1.0.0"
 
 REQUIRED_FILES = [
     "README.md",
@@ -36,6 +36,7 @@ MILESTONE_TAGS = [
     "v0.7.0-agent-action-playground",
     "v0.8.0-evidence-pack",
     "v0.9.0-evidence-pack-ui",
+    "v1.0.0-rc1-release-hardening",
 ]
 
 def _utc_now() -> str:
@@ -136,7 +137,7 @@ def run_release_check(root: str | Path = ".") -> dict[str, Any]:
         _check(
             "package_version",
             found_version == RELEASE_VERSION,
-            "package version matches release candidate" if found_version == RELEASE_VERSION else "package version mismatch",
+            "package version matches release version" if found_version == RELEASE_VERSION else "package version mismatch",
             {
                 "expected": RELEASE_VERSION,
                 "found": found_version,
