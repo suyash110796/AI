@@ -1,11 +1,78 @@
+# OMEGA Runtime v1.0.0
 
-This repository is not just a demo runtime. It is a concrete verification framework for controlled agent execution.
+**Proof-carrying runtime for controlled, replayable, and auditable agent execution.**
+
+OMEGA Runtime is a verification framework for tool-using AI agents. It is designed around one simple rule:
+
+> An agent should not merely say that it performed an allowed action.  
+> It should produce evidence that the action was authorized, certificate-bound, executed through a controlled gateway, recorded with receipts, replayable later, and auditable as a complete artifact.
+
+The current stable release is:
+
+```text
+v1.0.0
+```
+
+The final release checkpoint includes:
+
+```text
+83 tests passing
+release check passing
+main pushed
+v1.0.0 tag created
+working tree clean
+```
 
 ---
 
-## 1. What This Project Is
+## 1. Thirty-Second Explanation
 
-Omega Runtime is a runtime control and verification framework for advanced tool-using agents.
+A normal agent log might say:
+
+```json
+{
+  "step": "tool_call",
+  "status": "success",
+  "message": "file read completed"
+}
+```
+
+That is not enough.
+
+It does not prove:
+
+- the tool call was allowed,
+- the input was not changed after approval,
+- the policy was the same policy that approved the action,
+- the certificate was valid,
+- the runtime emitted a receipt,
+- the trace was not tampered with,
+- the run can be audited later.
+
+OMEGA Runtime adds that missing evidence layer.
+
+For every controlled action, OMEGA can answer:
+
+1. **Was the action allowed?**
+2. **Which policy allowed it?**
+3. **Was it bound to a certificate?**
+4. **Was the certificate signed by the expected key?**
+5. **Was the action modified after approval?**
+6. **Did execution happen through the proxy?**
+7. **Was a receipt emitted?**
+8. **Was the trace hash-linked?**
+9. **Can the trace be replayed offline?**
+10. **Can the evidence pack be exported and checked later?**
+
+In short:
+
+> OMEGA Runtime turns agent execution from “trust me” into “verify this evidence.”
+
+---
+
+## 2. What This Project Is
+
+OMEGA Runtime is a runtime control and verification framework for advanced tool-using agents.
 
 Its goal is to ensure that every tool execution is:
 
@@ -15,138 +82,318 @@ Its goal is to ensure that every tool execution is:
 4. checked against runtime invariants,
 5. executed only through a controlled proxy,
 6. recorded in a replayable trace,
-7. verifiable offline,
-8. auditable as a complete system artifact.
+7. packaged into portable evidence,
+8. verifiable offline,
+9. auditable as a complete system artifact.
 
 In simple terms:
 
-> An agent is not allowed to simply call tools.
-> It must present proof that the requested action is lawful.
-> The runtime verifies that proof before execution.
+> An agent is not allowed to simply call tools.  
+> It must present proof that the requested action is lawful.  
+> The runtime verifies that proof before execution.  
 > Every result is recorded so the execution can be checked again later.
 
 ---
 
-## 2. Why This Exists
+## 3. Why This Exists
 
 Tool-using AI agents can perform real actions:
 
-* read files,
-* write files,
-* call APIs,
-* invoke tools,
-* chain multiple steps,
-* produce final outputs,
-* create persistent traces.
+- read files,
+- write files,
+- call APIs,
+- invoke tools,
+- chain multiple steps,
+- create final reports,
+- generate persistent artifacts,
+- trigger external workflows.
 
-Without a runtime verification layer, an agent can:
+Without a verification layer, an agent can:
 
-* call a forbidden tool,
-* modify an action after approval,
-* reuse an old certificate,
-* drift from the original task,
-* bypass policy,
-* tamper with execution traces,
-* forge final reports,
-* hide invalid transitions,
-* produce unverifiable outputs.
+- call a forbidden tool,
+- modify action arguments after approval,
+- reuse an old certificate,
+- drift from the original task,
+- bypass policy checks,
+- tamper with execution traces,
+- forge final reports,
+- hide invalid transitions,
+- produce outputs that cannot be audited.
 
-Omega Runtime prevents those failures by requiring proof-carrying execution.
+OMEGA Runtime prevents those failures by requiring **proof-carrying execution**.
+
+The runtime does not merely ask:
+
+> Did the agent succeed?
+
+It asks:
+
+> Can the agent prove that this success was authorized, bound, recorded, replayable, and auditable?
 
 ---
 
-## 3. Core Design Principle
+## 4. The Real-Life Problem It Solves
 
-The runtime follows this principle:
+Modern AI agents are moving from chat into action.
+
+They are increasingly expected to:
+
+- summarize files,
+- modify code,
+- access internal documents,
+- call SaaS APIs,
+- operate workflows,
+- make decisions,
+- produce reports,
+- coordinate multi-step tasks.
+
+This creates a serious governance problem.
+
+A company may need to know:
+
+- Why did the agent take this action?
+- Was the action allowed by policy?
+- What exact input was approved?
+- Did the input change after approval?
+- Which tool actually ran?
+- What did the tool return?
+- Was the output tampered with?
+- Can this execution be replayed later?
+- Can an auditor independently verify the evidence?
+
+Ordinary logs do not answer these questions strongly enough.
+
+OMEGA Runtime addresses this by creating a runtime evidence chain:
+
+```text
+Action
+  -> action hash
+  -> policy decision
+  -> policy manifest hash
+  -> certificate
+  -> proxy execution
+  -> receipt
+  -> trace entry
+  -> replay verification
+  -> proof bundle
+  -> evidence pack
+  -> release/system audit
+```
+
+This makes the execution explainable, reproducible, and auditable.
+
+---
+
+## 5. How OMEGA Is Different From Ordinary Agent Logs
+
+### Ordinary Agent Log
+
+An ordinary log can say:
+
+```text
+The agent read a file.
+```
+
+But it usually does not prove:
+
+- the file read was allowed,
+- the action was certified,
+- the certificate matched the exact action,
+- the policy was not changed,
+- the trace was not tampered with,
+- the final report was derived from valid evidence.
+
+### OMEGA Runtime
+
+OMEGA can produce a machine-verifiable evidence set showing:
+
+- the action hash,
+- the policy hash,
+- the certificate binding,
+- the receipt,
+- the trace entry,
+- the replay verification result,
+- the proof bundle,
+- the evidence pack archive hash,
+- the release check output.
+
+The key difference:
+
+> OMEGA does not only log what happened.  
+> OMEGA verifies why it was allowed and preserves evidence that can be checked later.
+
+---
+
+## 6. What OMEGA Is Not
+
+OMEGA Runtime is not a claim of magical AI safety.
+
+It is not:
+
+- a model-weight modification system,
+- a hidden memory system,
+- an AGI containment system,
+- a replacement for operating-system sandboxing,
+- a replacement for cloud IAM,
+- a replacement for secrets management,
+- a replacement for human review in high-risk environments.
+
+It is a concrete engineering framework for:
+
+- controlled tool execution,
+- proof-bound authorization,
+- tamper detection,
+- trace replay,
+- artifact verification,
+- audit-friendly evidence packaging.
+
+---
+
+## 7. Core Design Principle
+
+OMEGA follows this rule:
 
 > No action executes unless the runtime can verify that the action, policy, certificate, trace, and result are mutually consistent.
 
 This is enforced through:
 
-* canonical hashing,
-* certificate signing,
-* policy manifest binding,
-* invariant checking,
-* controlled proxy execution,
-* counterexample generation,
-* append-only trace chains,
-* replay verification,
-* proof bundles,
-* episode bundles,
-* final verifier reports,
-* system-level audits.
+- canonical hashing,
+- certificate signing,
+- policy manifest binding,
+- invariant checking,
+- controlled proxy execution,
+- structured rejection reasons,
+- counterexample generation,
+- append-only trace chains,
+- offline replay verification,
+- proof bundles,
+- episode bundles,
+- evidence packs,
+- browser dashboards,
+- final release checks.
 
 ---
 
-## 4. Repository Structure
+## 8. Current Stable Milestone
+
+The current stable release is:
+
+```text
+v1.0.0
+```
+
+Latest final-release validation showed:
+
+```text
+83 passed
+release check passed
+v1.0.0 tag pushed
+main clean
+```
+
+The project history includes these milestone tags:
+
+```text
+v0.1.0-stable
+v0.2.0-cli-packaging
+v0.3.0-api
+v0.4.0-ui-dashboard-complete
+v0.5.0-failure-lab
+v0.6.0-failure-lab-dashboard
+v0.7.0-agent-action-playground
+v0.8.0-evidence-pack
+v0.9.0-evidence-pack-ui
+v1.0.0-rc1-release-hardening
+v1.0.0
+```
+
+---
+
+## 9. Repository Structure
 
 ```text
 omega_runtime/
-  core/
-    actions.py
-    auditor.py
-    canonical.py
-    certificates.py
-    counterexample.py
-    counterexamples.py
-    crypto_ed25519.py
-    decision_firewall.py
-    episode_bundle.py
-    final_verifier_report.py
-    gates.py
-    invariants.py
-    ledger.py
-    policy.py
-    policy_manifest.py
-    proof_bundle.py
-    proxy.py
-    replay.py
-    replay_verifier.py
-    run_context.py
-    state.py
-    stateful_proxy.py
-    system_verifier.py
-    trace_chain.py
-    transitions.py
-    types.py
-    verifier.py
+  api.py
+  action_playground.py
+  evidence_pack_ui.py
+  failure_lab_dashboard.py
+  release_check.py
 
-omega_runtime/
-  tools/
-    sandbox_tools.py
+omega_runtime/core/
+  actions.py
+  auditor.py
+  canonical.py
+  certificates.py
+  counterexample.py
+  counterexamples.py
+  crypto_ed25519.py
+  decision_firewall.py
+  episode_bundle.py
+  final_verifier_report.py
+  gates.py
+  invariants.py
+  ledger.py
+  policy.py
+  policy_manifest.py
+  proof_bundle.py
+  proxy.py
+  replay.py
+  replay_verifier.py
+  run_context.py
+  state.py
+  stateful_proxy.py
+  system_verifier.py
+  trace_chain.py
+  transitions.py
+  types.py
+  verifier.py
+
+omega_runtime/tools/
+  sandbox_tools.py
 
 scripts/
   audit_runtime.py
   demo_decision_firewall.py
   demo_episode_bundle.py
+  demo_evidence_pack.py
+  demo_failure_lab.py
   demo_final_verifier_report.py
   demo_proof_bundle.py
   demo_replay_verifier.py
   demo_trace_chain.py
+  release_check.py
+  run_api.py
   verify_episode_bundle.py
   verify_final_report.py
   verify_proof_bundle.py
   verify_runtime_system.py
 
 tests/
+  test_action_playground.py
   test_action_tamper_rejected.py
+  test_api.py
   test_auditor.py
   test_certificate_binds_policy_manifest.py
   test_counterexample_on_path_escape.py
   test_counterexample_on_tamper.py
   test_decision_firewall.py
   test_episode_bundle.py
+  test_evidence_pack_ui.py
+  test_failure_lab.py
+  test_failure_lab_dashboard.py
   test_final_verifier_report.py
   test_gate_order_rejected.py
   test_illegal_transition_rejected.py
   test_no_certificate_rejected.py
   test_no_counterexample_on_accept.py
+  test_packaging_cli.py
   test_path_escape_rejected.py
   test_policy_manifest_signature_tamper_rejected.py
   test_policy_manifest_tamper_rejected.py
   test_policy_manifest_valid.py
   test_proof_bundle_cli.py
   test_proof_bundle_export.py
+  test_release_hardening.py
   test_replay_rejected.py
   test_replay_verifier.py
   test_signature_tamper_rejected.py
@@ -154,6 +401,8 @@ tests/
   test_terminal_reentry_rejected.py
   test_trace_chain.py
   test_trace_tamper_detected.py
+  test_ui_dashboard.py
+  test_ui_dashboard_routes.py
   test_valid_certified_trace.py
   test_valid_transition_sequence.py
   test_wrong_key_rejected.py
@@ -176,28 +425,242 @@ examples/
   demo_tamper_rejected.py
   demo_wrong_key_rejected.py
 
+artifacts/
+  generated proof bundles, reports, evidence packs, and release reports
+
 traces/
-  .gitkeep
+  replayable trace files
 
 sandbox/
-  .gitkeep
+  safe demo input/output area
 ```
 
 ---
 
-## 5. Runtime Concepts
+## 10. Installation
 
-### 5.1 Action
+From project root:
+
+```powershell
+python -m pip install -e .
+```
+
+Run the full test suite:
+
+```powershell
+python -m pytest
+```
+
+Expected result for v1.0.0:
+
+```text
+83 passed
+```
+
+Run the release check:
+
+```powershell
+python scripts/release_check.py --json
+```
+
+Expected result:
+
+```json
+{
+  "accepted": true,
+  "reason": "release check passed",
+  "release_version": "1.0.0"
+}
+```
+
+---
+
+## 11. Browser UI
+
+Start the API server:
+
+```powershell
+python scripts/run_api.py
+```
+
+Then open these links:
+
+```text
+http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/failure-lab
+http://127.0.0.1:8000/action-playground
+http://127.0.0.1:8000/evidence-pack
+```
+
+Use `/docs` as the source of truth for the currently registered API routes.
+
+### What to check in the UI
+
+Check that the dashboards show:
+
+- accepted valid executions,
+- rejected tampered executions,
+- rejected missing-evidence cases,
+- proof bundle details,
+- replay trace details,
+- evidence pack output,
+- report paths,
+- hashes,
+- scenario results.
+
+The important thing is not just that a page loads.
+
+The important thing is that each page demonstrates one of the core claims:
+
+> Valid actions pass.  
+> Invalid actions fail.  
+> Evidence is exported.  
+> Evidence can be verified later.
+
+---
+
+## 12. Main CLI Validation Commands
+
+### 12.1 Run full tests
+
+```powershell
+python -m pytest
+```
+
+Expected:
+
+```text
+83 passed
+```
+
+### 12.2 Run release check
+
+```powershell
+python scripts/release_check.py --json
+```
+
+Expected:
+
+```json
+{
+  "accepted": true,
+  "reason": "release check passed"
+}
+```
+
+### 12.3 Generate proof bundle demo
+
+```powershell
+python scripts/demo_proof_bundle.py
+```
+
+Expected output includes:
+
+```text
+accepted: True
+bundle_verified: True
+verify_reason: proof bundle valid
+```
+
+### 12.4 Verify proof bundle
+
+```powershell
+python scripts/verify_proof_bundle.py artifacts\proof_bundle_demo.json --json
+```
+
+Expected:
+
+```json
+{
+  "accepted": true,
+  "reason": "proof bundle valid"
+}
+```
+
+### 12.5 Generate replay verifier demo
+
+```powershell
+python scripts/demo_replay_verifier.py
+```
+
+Expected output includes:
+
+```text
+REPLAY VERIFIER: PASS
+REPLAY REASON: offline replay verification passed
+```
+
+### 12.6 Run failure lab
+
+```powershell
+python scripts/demo_failure_lab.py
+```
+
+Expected output includes five passing scenarios:
+
+```text
+valid_system
+tampered_proof_bundle
+tampered_trace
+missing_proof_bundle
+missing_trace
+```
+
+### 12.7 Generate evidence pack
+
+```powershell
+python scripts/demo_evidence_pack.py --json
+```
+
+Expected:
+
+```json
+{
+  "accepted": true,
+  "reason": "evidence pack generated"
+}
+```
+
+Expected generated files include:
+
+```text
+artifacts\proof_bundle_demo.json
+traces\replay-verifier-demo.jsonl
+artifacts\failure_lab\failure_lab_report.json
+artifacts\evidence_pack\evidence_pack_report.json
+artifacts\evidence_pack\omega_evidence_pack.zip
+```
+
+### 12.8 Verify complete runtime system
+
+```powershell
+python scripts/verify_runtime_system.py `
+  --proof-bundle artifacts\proof_bundle_demo.json `
+  --trace traces\replay-verifier-demo.jsonl `
+  --json
+```
+
+Expected reason:
+
+```text
+system verification passed
+```
+
+---
+
+## 13. Runtime Concepts
+
+### 13.1 Action
 
 An `Action` is a request to execute a tool.
 
-An action contains fields such as:
+It contains fields such as:
 
-* `run_id`
-* `step_index`
-* `tool`
-* `args`
-* `nonce`
+- `run_id`
+- `step_index`
+- `tool`
+- `args`
+- `nonce`
 
 Example:
 
@@ -213,124 +676,125 @@ Action(
 
 The action is canonicalized and hashed before certification.
 
-The hash prevents tampering. If any field changes after certification, verification fails.
+If any field changes after certification, the action hash changes and verification fails.
 
 ---
 
-### 5.2 Certificate
+### 13.2 Certificate
 
 A certificate is a signed authorization object.
 
 It binds together:
 
-* the action hash,
-* the policy hash,
-* the run identity,
-* the step index,
-* the trusted key id,
-* the signature,
-* the payload hash.
+- the action hash,
+- the policy hash,
+- the run identity,
+- the step index,
+- the trusted key id,
+- the signature,
+- the payload hash.
 
 The runtime checks the certificate before executing the action.
 
 A certificate is rejected if:
 
-* it is missing,
-* it has the wrong key,
-* its signature is invalid,
-* its payload hash does not match,
-* its action hash does not match the requested action,
-* its policy hash does not match the current policy manifest.
+- it is missing,
+- it has the wrong key,
+- its signature is invalid,
+- its payload hash does not match,
+- its action hash does not match the requested action,
+- its policy hash does not match the current policy manifest.
 
 ---
 
-### 5.3 Policy Manifest
+### 13.3 Policy Manifest
 
 The policy manifest defines what the runtime allows.
 
 It protects the runtime from policy tampering.
 
-The manifest is checked before execution. If the policy is modified after certificate issuance, the runtime rejects the action.
+The certificate is bound to a policy hash. If the policy changes after the certificate is issued, OMEGA rejects the execution.
 
-This protects against this attack:
+This prevents the attack:
 
-1. issue a certificate under a safe policy,
-2. modify policy afterward,
-3. try to execute with the old certificate.
-
-Omega Runtime rejects this because the certificate is bound to the original policy hash.
+```text
+1. Issue certificate under safe policy.
+2. Modify policy later.
+3. Try to execute with old certificate.
+4. Runtime detects the policy mismatch and rejects.
+```
 
 ---
 
-### 5.4 OmegaProxy
+### 13.4 OmegaProxy
 
 `OmegaProxy` is the controlled execution gateway.
 
-Tools are not supposed to be executed directly.
+Tools should not be executed directly.
 
-Instead, the caller must send:
+Instead, a caller sends:
 
 1. an action,
 2. a certificate.
 
-The proxy verifies the action and certificate before dispatching the tool.
+The proxy verifies both before dispatching the tool.
 
 The proxy returns a structured result containing:
 
-* accepted/rejected decision,
-* reason,
-* output,
-* receipt,
-* counterexample when rejected.
+- accepted or rejected decision,
+- reason,
+- output,
+- receipt,
+- counterexample when rejected.
 
 ---
 
-### 5.5 Receipt
+### 13.5 Receipt
 
 A receipt proves that a tool execution happened through the controlled runtime.
 
-It records details such as:
+It records:
 
-* run id,
-* step index,
-* action hash,
-* output hash,
-* execution status,
-* detail string.
+- run id,
+- step index,
+- action hash,
+- output hash,
+- execution status,
+- detail string.
 
-Receipts are used later in proof bundles, episode bundles, replay verification, and audits.
+Receipts are later used in proof bundles, episode bundles, replay verification, evidence packs, and audits.
 
 ---
 
-### 5.6 Counterexample
+### 13.6 Counterexample
 
 A counterexample is produced when the runtime rejects an action.
 
 It explains:
 
-* what invariant failed,
-* what was expected,
-* what was observed,
-* which run and step failed,
-* why the decision was `REJECT`.
+- what invariant failed,
+- what was expected,
+- what was observed,
+- which run and step failed,
+- why the decision was `REJECT`.
+
+Example failure categories:
+
+- missing certificate,
+- invalid signature,
+- wrong certificate key,
+- policy admission failure,
+- path escape,
+- replay attempt,
+- illegal transition,
+- terminal re-entry,
+- policy manifest integrity failure.
 
 Counterexamples make rejection machine-checkable and human-readable.
 
-Example failure categories include:
-
-* missing certificate,
-* invalid signature,
-* wrong certificate key,
-* policy admission failure,
-* path escape,
-* replay attempt,
-* illegal transition,
-* terminal re-entry,
-* policy manifest integrity failure.
-
 ---
 
-### 5.7 Invariants
+### 13.7 Invariants
 
 Invariants are named runtime safety rules.
 
@@ -338,61 +802,61 @@ They classify failures precisely.
 
 Examples include:
 
-* wrong certificate key,
-* certificate signature tamper,
-* policy manifest integrity,
-* path escape,
-* action tamper,
-* replay rejection,
-* illegal transition,
-* terminal re-entry.
+- wrong certificate key,
+- certificate signature tamper,
+- policy manifest integrity,
+- path escape,
+- action tamper,
+- replay rejection,
+- illegal transition,
+- terminal re-entry.
 
-The invariant layer prevents vague rejection reasons. Each rejection maps to a specific failed rule.
+This prevents vague rejection reasons.
+
+Each rejection maps to a specific failed rule.
 
 ---
 
-### 5.8 Gates
+### 13.8 Gates
 
 Gates are ordered checks.
 
 Gate order matters.
 
-For example:
+Examples:
 
-1. wrong certificate key must be detected before generic policy admission failure,
-2. policy manifest integrity must be detected before ordinary certificate mismatch,
-3. signature tampering must not be misclassified as a policy failure.
+- wrong certificate key must be detected before a generic policy failure,
+- policy manifest integrity must be detected before ordinary certificate mismatch,
+- signature tampering must not be misclassified as policy denial.
 
 The tests enforce this ordering.
 
 ---
 
-### 5.9 Decision Firewall
+### 13.9 Decision Firewall
 
-The decision firewall ensures that an unsafe or invalid runtime decision cannot be silently treated as valid.
+The decision firewall protects the boundary between:
 
-It protects the boundary between:
+- verifier decision,
+- runtime execution,
+- receipt emission,
+- final result.
 
-* verifier decision,
-* runtime execution,
-* receipt emission,
-* final result.
-
-This prevents invalid states from passing through as accepted executions.
+It prevents unsafe or invalid runtime decisions from silently passing as accepted executions.
 
 ---
 
-### 5.10 Trace Chain
+### 13.10 Trace Chain
 
 The trace chain records execution events in a hash-linked structure.
 
-Each trace entry can be bound to:
+Each trace entry can bind:
 
-* the action,
-* the certificate,
-* the receipt,
-* previous entry hash,
-* current entry hash.
+- action,
+- certificate,
+- receipt,
+- previous entry hash,
+- current entry hash.
 
 This creates tamper evidence.
 
@@ -400,41 +864,41 @@ If an attacker changes an earlier entry, later hashes no longer match.
 
 ---
 
-### 5.11 Replay Verifier
+### 13.11 Replay Verifier
 
 The replay verifier checks a trace offline.
 
-It can verify that:
+It verifies that:
 
-* entries are well formed,
-* hash links are valid,
-* replayed actions match their certificates,
-* receipts match executed actions,
-* tampering is detected.
+- entries are well formed,
+- hash links are valid,
+- replayed actions match certificates,
+- receipts match executed actions,
+- tampering is detected.
 
-This means an execution does not only need to pass live. It can be independently verified later.
+This means execution does not only need to pass live. It can be independently verified later.
 
 ---
 
-### 5.12 Proof Bundle
+### 13.12 Proof Bundle
 
 A proof bundle packages a single verified execution into a portable artifact.
 
 It contains:
 
-* bundle type,
-* action,
-* certificate,
-* receipt,
-* accepted decision,
-* reason,
-* verification summary,
-* bundle hash.
+- bundle type,
+- action,
+- certificate,
+- receipt,
+- accepted decision,
+- reason,
+- verification summary,
+- bundle hash.
 
-A proof bundle can be verified offline using:
+Verify a proof bundle with:
 
 ```powershell
-python scripts/verify_proof_bundle.py artifacts/proof_bundle_demo.json --json
+python scripts/verify_proof_bundle.py artifacts\proof_bundle_demo.json --json
 ```
 
 A valid proof bundle returns:
@@ -446,11 +910,11 @@ A valid proof bundle returns:
 }
 ```
 
-If the bundle is modified, verification fails with a hash mismatch or binding failure.
+If the bundle is modified, verification fails.
 
 ---
 
-### 5.13 Episode Bundle
+### 13.13 Episode Bundle
 
 An episode bundle packages multiple related execution steps.
 
@@ -458,61 +922,53 @@ It represents a multi-step agent episode.
 
 It contains:
 
-* run id,
-* final output,
-* step count,
-* ordered steps,
-* action hashes,
-* certificate hashes,
-* receipt hashes,
-* verification summary,
-* bundle hash.
+- run id,
+- final output,
+- step count,
+- ordered steps,
+- action hashes,
+- certificate hashes,
+- receipt hashes,
+- verification summary,
+- bundle hash.
 
 It verifies that:
 
-* all steps belong to the same episode,
-* all certificates are bound,
-* all receipts are bound,
-* all receipts correspond to executed actions,
-* final output has not been tampered with,
-* the bundle hash is stable.
-
-Verify an episode bundle with:
-
-```powershell
-python scripts/verify_episode_bundle.py path\to\episode_bundle.json --json
-```
+- all steps belong to the same episode,
+- all certificates are bound,
+- all receipts are bound,
+- all receipts correspond to executed actions,
+- final output has not been tampered with,
+- the bundle hash is stable.
 
 ---
 
-### 5.14 Final Verifier Report
+### 13.14 Final Verifier Report
 
 The final verifier report summarizes the verification state of a completed run.
 
-It is intended to be a high-level machine-readable and human-readable result.
-
 It can include:
 
-* proof bundle status,
-* replay status,
-* episode bundle status,
-* accepted/rejected status,
-* final reason,
-* aggregate hash.
+- proof bundle status,
+- replay status,
+- episode bundle status,
+- accepted or rejected status,
+- final reason,
+- aggregate hash.
 
-This is the layer that turns low-level proofs into a final verification statement.
+This layer turns low-level proofs into a final verification statement.
 
 ---
 
-### 5.15 Auditor
+### 13.15 Auditor
 
 The auditor verifies supplied runtime artifacts.
 
 It can audit:
 
-* proof bundles,
-* traces,
-* generated reports.
+- proof bundles,
+- traces,
+- generated reports.
 
 Example:
 
@@ -526,7 +982,7 @@ Example:
 python scripts/audit_runtime.py --trace traces\replay-verifier-demo.jsonl --json
 ```
 
-If no artifacts are supplied, the auditor rejects:
+If no artifacts are supplied, the auditor intentionally rejects:
 
 ```json
 {
@@ -535,15 +991,13 @@ If no artifacts are supplied, the auditor rejects:
 }
 ```
 
-This is intentional.
-
 ---
 
-### 5.16 System Verifier
+### 13.16 System Verifier
 
 The system verifier verifies multiple artifact types together.
 
-It can check a proof bundle and a trace together:
+Example:
 
 ```powershell
 python scripts/verify_runtime_system.py `
@@ -558,376 +1012,571 @@ Expected valid reason:
 system verification passed
 ```
 
-The system verifier provides a higher-level judgment over the runtime evidence set.
+---
+
+### 13.17 Evidence Pack
+
+The evidence pack is the portable audit bundle.
+
+It gathers important proof artifacts into one exportable package.
+
+It can include:
+
+- proof bundle,
+- replay trace,
+- failure lab report,
+- evidence pack report,
+- evidence pack zip archive,
+- hashes for files inside the archive.
+
+Generate it with:
+
+```powershell
+python scripts/demo_evidence_pack.py --json
+```
+
+Expected generated archive:
+
+```text
+artifacts\evidence_pack\omega_evidence_pack.zip
+```
+
+The evidence pack is useful when someone asks:
+
+> Show me everything I need to verify this run later.
 
 ---
 
-## 6. Threat Model
+### 13.18 Release Check
 
-Omega Runtime is designed to detect and reject common tool-agent integrity failures.
+The release check verifies that the repository is structurally ready for release.
 
-### 6.1 Missing Certificate
+It checks:
 
-If an action is submitted without a certificate, the runtime rejects it.
+- project root,
+- required files,
+- required directories,
+- package version,
+- milestone tags,
+- test suite presence,
+- release scripts.
 
-Why it matters:
+Run:
 
-An agent should not be able to directly execute tools without proof.
+```powershell
+python scripts/release_check.py --json
+```
 
----
+Expected:
 
-### 6.2 Wrong Certificate Key
-
-If a certificate has an untrusted key id, the runtime rejects it.
-
-Why it matters:
-
-An attacker should not be able to create a certificate using an unauthorized key.
-
----
-
-### 6.3 Signature Tampering
-
-If a certificate signature is modified, the runtime rejects it.
-
-Why it matters:
-
-A signed proof must be cryptographically stable.
+```json
+{
+  "accepted": true,
+  "reason": "release check passed",
+  "release_version": "1.0.0"
+}
+```
 
 ---
 
-### 6.4 Action Tampering
+## 14. What Inputs Are Being Checked?
 
-If an action is modified after certificate issuance, the runtime rejects it.
+OMEGA checks several classes of input.
+
+### 14.1 Action input
+
+The action input includes:
+
+- tool name,
+- arguments,
+- run id,
+- step index,
+- nonce.
 
 Example:
 
-Certified action:
-
 ```json
 {
-  "path": "sandbox/input.txt"
+  "tool": "sandbox.read_file",
+  "args": {
+    "path": "sandbox/input.txt"
+  }
 }
 ```
 
-Tampered action:
+OMEGA checks whether this exact action is the action that was approved.
 
-```json
-{
-  "path": "sandbox/evil.txt"
-}
+---
+
+### 14.2 Policy input
+
+The policy defines what is allowed.
+
+Example questions:
+
+- Is this tool allowed?
+- Is this path allowed?
+- Is this action inside the sandbox?
+- Is this transition legal?
+
+OMEGA checks that the policy used during execution matches the policy bound to the certificate.
+
+---
+
+### 14.3 Certificate input
+
+The certificate proves authorization.
+
+OMEGA checks:
+
+- trusted key id,
+- payload hash,
+- action hash,
+- policy hash,
+- signature.
+
+---
+
+### 14.4 Runtime state input
+
+Stateful runs must move through legal states.
+
+OMEGA checks:
+
+- valid transition order,
+- no illegal transition,
+- no terminal re-entry,
+- no replay violation.
+
+---
+
+### 14.5 Artifact input
+
+Artifacts include:
+
+- proof bundles,
+- traces,
+- reports,
+- evidence packs.
+
+OMEGA checks:
+
+- existence,
+- hash integrity,
+- internal consistency,
+- replay validity,
+- aggregate report validity.
+
+---
+
+## 15. Failure Scenarios OMEGA Demonstrates
+
+### 15.1 Valid system
+
+A valid proof bundle and valid replay trace should pass.
+
+Expected:
+
+```text
+ACCEPT
+system verification passed
 ```
 
-The action hash changes, so the certificate no longer binds to the action.
+### 15.2 Tampered proof bundle
 
----
+If the proof bundle changes after generation, verification fails.
 
-### 6.5 Policy Tampering
+Expected:
 
-If the policy manifest changes after certificate issuance, the runtime rejects execution.
+```text
+REJECT
+bundle_hash mismatch
+```
 
-Why it matters:
+### 15.3 Tampered replay trace
 
-The certificate must prove authorization under the exact policy that is currently active.
+If the trace changes after generation, replay verification fails.
 
----
+Expected:
 
-### 6.6 Policy Manifest Signature Tampering
+```text
+REJECT
+entry_hash mismatch
+```
 
-If the policy manifest signature is modified, the runtime rejects it as a policy integrity failure.
+### 15.4 Missing proof bundle
 
-Why it matters:
+If the proof bundle artifact is missing, system verification rejects or reports missing evidence.
 
-The policy itself must be protected against unauthorized modification.
+Expected:
 
----
+```text
+REJECT
+missing proof bundle
+```
 
-### 6.7 Path Escape
+### 15.5 Missing replay trace
 
-Sandbox tools are restricted to safe paths.
+If the trace artifact is missing, system verification rejects or reports missing evidence.
 
-A path escape attempt is rejected.
+Expected:
+
+```text
+REJECT
+missing trace
+```
+
+### 15.6 Missing certificate
+
+If an action arrives without a certificate, the proxy rejects the action.
+
+Expected:
+
+```text
+REJECT
+missing certificate
+```
+
+### 15.7 Wrong key
+
+If the certificate uses an untrusted key id, verification fails.
+
+Expected:
+
+```text
+REJECT
+wrong key
+```
+
+### 15.8 Signature tampering
+
+If the certificate signature is changed, verification fails.
+
+Expected:
+
+```text
+REJECT
+invalid signature
+```
+
+### 15.9 Action tampering
+
+If the action is changed after certificate issuance, the action hash no longer matches.
+
+Expected:
+
+```text
+REJECT
+action hash mismatch
+```
+
+### 15.10 Path escape
+
+If the action tries to read outside the sandbox, the runtime rejects it.
 
 Example unsafe path:
 
 ```text
-../secret.txt
+../README.md
 ```
 
-Why it matters:
-
-The agent must not escape its allowed filesystem area.
-
----
-
-### 6.8 Replay Attack
-
-A certificate or action cannot be reused in an invalid way.
-
-Why it matters:
-
-A valid previous action should not become unlimited future authority.
-
----
-
-### 6.9 Illegal Transition
-
-Stateful execution must follow valid transitions.
-
-Invalid state movement is rejected.
-
-Why it matters:
-
-A runtime must not enter impossible or unauthorized states.
-
----
-
-### 6.10 Terminal Re-entry
-
-Once an execution reaches a terminal state, it cannot re-enter active execution.
-
-Why it matters:
-
-Completed runs must stay closed.
-
----
-
-### 6.11 Trace Tampering
-
-If a trace entry is modified after creation, replay verification detects it.
-
-Why it matters:
-
-Logs must be tamper-evident.
-
----
-
-### 6.12 Bundle Tampering
-
-If a proof bundle, episode bundle, or report is modified after export, verification fails.
-
-Why it matters:
-
-Portable proof artifacts must remain trustworthy.
-
----
-
-## 7. Main Commands
-
-### 7.1 Run All Tests
-
-```powershell
-python -m pytest
-```
-
-Expected stable result:
+Expected:
 
 ```text
-50 passed
+REJECT
+path escape
 ```
 
----
+### 15.11 Policy tampering
 
-### 7.2 Generate a Proof Bundle Demo
+If the policy manifest changes after certificate issuance, the certificate no longer binds to the active policy.
 
-```powershell
-python scripts/demo_proof_bundle.py
-```
-
-Expected result includes:
+Expected:
 
 ```text
-accepted: True
-bundle_verified: True
-verify_reason: proof bundle valid
+REJECT
+policy manifest mismatch
 ```
 
----
+### 15.12 Replay violation
 
-### 7.3 Verify a Proof Bundle
+If a previous authorization is reused incorrectly, replay protection rejects it.
 
-```powershell
-python scripts/verify_proof_bundle.py artifacts\proof_bundle_demo.json --json
-```
-
----
-
-### 7.4 Generate a Replay Trace Demo
-
-```powershell
-python scripts/demo_replay_verifier.py
-```
-
-Expected result includes:
+Expected:
 
 ```text
-REPLAY VERIFIER: PASS
-REPLAY REASON: offline replay verification passed
+REJECT
+replay rejected
 ```
 
----
+### 15.13 Illegal transition
 
-### 7.5 Audit a Proof Bundle
+If runtime state moves through an invalid transition, verification rejects it.
 
-```powershell
-python scripts/audit_runtime.py --proof-bundle artifacts\proof_bundle_demo.json --json
-```
-
----
-
-### 7.6 Audit a Trace
-
-```powershell
-python scripts/audit_runtime.py --trace traces\replay-verifier-demo.jsonl --json
-```
-
----
-
-### 7.7 Write an Audit Report
-
-```powershell
-python scripts/audit_runtime.py --out artifacts\audit_report.json --json
-```
-
-If no artifacts are supplied, this intentionally returns:
-
-```json
-{
-  "accepted": false,
-  "reason": "no artifacts supplied"
-}
-```
-
----
-
-### 7.8 Verify the Whole Runtime System
-
-```powershell
-python scripts/verify_runtime_system.py `
-  --proof-bundle artifacts\proof_bundle_demo.json `
-  --trace traces\replay-verifier-demo.jsonl `
-  --out artifacts\system_report.json `
-  --json
-```
-
-Expected valid reason:
+Expected:
 
 ```text
-system verification passed
+REJECT
+illegal transition
+```
+
+### 15.14 Terminal re-entry
+
+If a completed run tries to re-enter active execution, verification rejects it.
+
+Expected:
+
+```text
+REJECT
+terminal re-entry
 ```
 
 ---
 
-## 8. Important Modules
+## 16. API and Dashboard Routes
 
-### 8.1 `omega_runtime/core/actions.py`
+Start the server:
 
-Defines the runtime action object.
+```powershell
+python scripts/run_api.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Common local dashboard links:
+
+```text
+http://127.0.0.1:8000/failure-lab
+http://127.0.0.1:8000/action-playground
+http://127.0.0.1:8000/evidence-pack
+```
+
+Common API routes include:
+
+```text
+GET  /health
+GET  /docs
+
+GET  /failure-lab
+POST /failure-lab/run
+GET  /failure-lab/report
+
+GET  /action-playground
+GET  /action-playground/scenarios
+POST /action-playground/run
+POST /action-playground/run-all
+GET  /action-playground/report
+```
+
+Use `/docs` to inspect the exact route contract of the current build.
+
+---
+
+## 17. File-by-File Explanation
+
+### `omega_runtime/api.py`
+
+Creates the FastAPI application and registers API/dashboard routes.
+
+This is the browser and HTTP entry point.
+
+---
+
+### `omega_runtime/action_playground.py`
+
+Implements the action playground.
+
+It provides scenarios that show:
+
+- allowed file read,
+- blocked path escape,
+- missing certificate,
+- tampered action,
+- runtime rejection paths.
+
+This is useful for demonstrating what the agent firewall catches.
+
+---
+
+### `omega_runtime/evidence_pack_ui.py`
+
+Implements the evidence pack browser UI.
+
+It helps demonstrate:
+
+- generated artifacts,
+- evidence pack report,
+- archive path,
+- artifact hashes,
+- audit-friendly export.
+
+---
+
+### `omega_runtime/failure_lab_dashboard.py`
+
+Implements the failure lab dashboard.
+
+It shows the difference between a normal agent log and OMEGA proof-carrying execution.
+
+It demonstrates:
+
+- valid system acceptance,
+- tampered proof bundle rejection,
+- tampered trace rejection,
+- missing proof bundle rejection,
+- missing trace rejection.
+
+---
+
+### `omega_runtime/release_check.py`
+
+Implements the release readiness checker.
+
+It verifies:
+
+- required files,
+- required directories,
+- package version,
+- milestone tags,
+- test suite presence,
+- release scripts.
+
+---
+
+### `omega_runtime/core/actions.py`
+
+Defines the action object.
 
 The action is the atomic request to execute a tool.
 
 ---
 
-### 8.2 `omega_runtime/core/canonical.py`
+### `omega_runtime/core/canonical.py`
 
 Provides canonical serialization and hashing helpers.
 
-Canonicalization matters because the same logical object must always produce the same hash.
-
-This prevents inconsistent hash results caused by dictionary ordering or formatting differences.
+Canonicalization ensures that logically equivalent objects hash consistently.
 
 ---
 
-### 8.3 `omega_runtime/core/certificates.py`
+### `omega_runtime/core/certificates.py`
 
 Handles certificate issuance and verification.
 
 Responsibilities include:
 
-* building certificate payloads,
-* computing payload hashes,
-* signing payloads,
-* verifying trusted key id,
-* verifying payload hash,
-* verifying certificate signature.
+- building certificate payloads,
+- computing payload hashes,
+- signing payloads,
+- verifying trusted key id,
+- verifying payload hash,
+- verifying certificate signature.
 
 ---
 
-### 8.4 `omega_runtime/core/policy.py`
+### `omega_runtime/core/policy.py`
 
 Evaluates whether an action is allowed by policy.
 
 ---
 
-### 8.5 `omega_runtime/core/policy_manifest.py`
+### `omega_runtime/core/policy_manifest.py`
 
-Handles policy manifest creation, hashing, and integrity verification.
-
----
-
-### 8.6 `omega_runtime/core/proxy.py`
-
-Implements `OmegaProxy`.
-
-This is the main controlled execution gateway.
+Handles policy manifest creation, hashing, signing, and integrity verification.
 
 ---
 
-### 8.7 `omega_runtime/core/counterexamples.py`
+### `omega_runtime/core/proxy.py`
+
+Implements `OmegaProxy`, the controlled execution gateway.
+
+---
+
+### `omega_runtime/core/counterexamples.py`
 
 Builds structured counterexamples for rejected executions.
 
 ---
 
-### 8.8 `omega_runtime/core/invariants.py`
+### `omega_runtime/core/invariants.py`
 
 Defines invariant identifiers and maps failure reasons to invariant names.
 
 ---
 
-### 8.9 `omega_runtime/core/trace_chain.py`
+### `omega_runtime/core/gates.py`
+
+Defines gate ordering and gate-related checks.
+
+Gate order ensures that failures are classified correctly.
+
+---
+
+### `omega_runtime/core/trace_chain.py`
 
 Implements hash-linked trace entries.
 
 ---
 
-### 8.10 `omega_runtime/core/replay_verifier.py`
+### `omega_runtime/core/replay_verifier.py`
 
 Verifies trace files offline.
 
 ---
 
-### 8.11 `omega_runtime/core/proof_bundle.py`
+### `omega_runtime/core/proof_bundle.py`
 
 Exports and verifies single-step proof bundles.
 
 ---
 
-### 8.12 `omega_runtime/core/episode_bundle.py`
+### `omega_runtime/core/episode_bundle.py`
 
 Exports and verifies multi-step episode bundles.
 
 ---
 
-### 8.13 `omega_runtime/core/final_verifier_report.py`
+### `omega_runtime/core/final_verifier_report.py`
 
 Builds final machine-readable verification reports.
 
 ---
 
-### 8.14 `omega_runtime/core/auditor.py`
+### `omega_runtime/core/auditor.py`
 
 Audits runtime artifacts.
 
 ---
 
-### 8.15 `omega_runtime/core/system_verifier.py`
+### `omega_runtime/core/system_verifier.py`
 
 Verifies multiple runtime artifacts together as one system-level evidence set.
 
 ---
 
-### 8.16 `omega_runtime/tools/sandbox_tools.py`
+### `omega_runtime/core/state.py`
+
+Defines runtime state objects.
+
+---
+
+### `omega_runtime/core/transitions.py`
+
+Defines and validates state transitions.
+
+---
+
+### `omega_runtime/core/stateful_proxy.py`
+
+Adds stateful execution controls around proxy-based execution.
+
+---
+
+### `omega_runtime/tools/sandbox_tools.py`
 
 Contains sandboxed file tools used by tests and demos.
 
@@ -935,170 +1584,217 @@ The tools are intentionally restricted to prevent unsafe path access.
 
 ---
 
-## 9. Test Coverage
+### `scripts/run_api.py`
 
-The test suite covers the runtime from multiple angles.
+Starts the local API server.
 
-### 9.1 Certificate Tests
+Use it before opening browser dashboards.
+
+---
+
+### `scripts/demo_proof_bundle.py`
+
+Generates a valid proof bundle demo.
+
+---
+
+### `scripts/verify_proof_bundle.py`
+
+Verifies a proof bundle from disk.
+
+---
+
+### `scripts/demo_replay_verifier.py`
+
+Generates a replayable trace and verifies it offline.
+
+---
+
+### `scripts/demo_failure_lab.py`
+
+Runs failure scenarios and writes a failure lab report.
+
+---
+
+### `scripts/demo_evidence_pack.py`
+
+Generates a portable evidence pack archive.
+
+---
+
+### `scripts/release_check.py`
+
+Runs the release readiness check from CLI.
+
+---
+
+### `scripts/audit_runtime.py`
+
+Audits runtime artifacts such as proof bundles and traces.
+
+---
+
+### `scripts/verify_runtime_system.py`
+
+Verifies a proof bundle and trace together as a system-level evidence set.
+
+---
+
+## 18. Test Coverage
+
+The v1.0.0 suite contains 83 passing tests.
+
+### 18.1 Certificate tests
 
 Covered by:
 
-* `test_no_certificate_rejected.py`
-* `test_wrong_key_rejected.py`
-* `test_signature_tamper_rejected.py`
-* `test_certificate_binds_policy_manifest.py`
+- `test_no_certificate_rejected.py`
+- `test_wrong_key_rejected.py`
+- `test_signature_tamper_rejected.py`
+- `test_certificate_binds_policy_manifest.py`
 
 These prove that the runtime rejects missing, forged, tampered, or stale certificates.
 
 ---
 
-### 9.2 Policy Tests
+### 18.2 Policy tests
 
 Covered by:
 
-* `test_policy_manifest_valid.py`
-* `test_policy_manifest_tamper_rejected.py`
-* `test_policy_manifest_signature_tamper_rejected.py`
+- `test_policy_manifest_valid.py`
+- `test_policy_manifest_tamper_rejected.py`
+- `test_policy_manifest_signature_tamper_rejected.py`
 
 These prove that policy integrity is enforced.
 
 ---
 
-### 9.3 Action and Path Safety Tests
+### 18.3 Action and path safety tests
 
 Covered by:
 
-* `test_action_tamper_rejected.py`
-* `test_path_escape_rejected.py`
-* `test_counterexample_on_path_escape.py`
+- `test_action_tamper_rejected.py`
+- `test_path_escape_rejected.py`
+- `test_counterexample_on_path_escape.py`
 
 These prove that action mutation and unsafe file paths are rejected.
 
 ---
 
-### 9.4 Runtime State Tests
+### 18.4 Runtime state tests
 
 Covered by:
 
-* `test_valid_transition_sequence.py`
-* `test_illegal_transition_rejected.py`
-* `test_terminal_reentry_rejected.py`
+- `test_valid_transition_sequence.py`
+- `test_illegal_transition_rejected.py`
+- `test_terminal_reentry_rejected.py`
 
 These prove that state transitions are controlled.
 
 ---
 
-### 9.5 Counterexample Tests
+### 18.5 Counterexample tests
 
 Covered by:
 
-* `test_counterexample_on_tamper.py`
-* `test_counterexample_on_path_escape.py`
-* `test_no_counterexample_on_accept.py`
+- `test_counterexample_on_tamper.py`
+- `test_counterexample_on_path_escape.py`
+- `test_no_counterexample_on_accept.py`
 
 These prove that rejection creates useful counterexamples and acceptance does not.
 
 ---
 
-### 9.6 Replay and Trace Tests
+### 18.6 Replay and trace tests
 
 Covered by:
 
-* `test_replay_rejected.py`
-* `test_replay_verifier.py`
-* `test_trace_chain.py`
-* `test_trace_tamper_detected.py`
+- `test_replay_rejected.py`
+- `test_replay_verifier.py`
+- `test_trace_chain.py`
+- `test_trace_tamper_detected.py`
 
 These prove that traces are hash-linked and replay-verifiable.
 
 ---
 
-### 9.7 Proof Bundle Tests
+### 18.7 Proof bundle tests
 
 Covered by:
 
-* `test_proof_bundle_export.py`
-* `test_proof_bundle_cli.py`
+- `test_proof_bundle_export.py`
+- `test_proof_bundle_cli.py`
 
 These prove that proof bundles can be exported and verified offline.
 
 ---
 
-### 9.8 Episode Bundle Tests
+### 18.8 Episode bundle tests
 
 Covered by:
 
-* `test_episode_bundle.py`
+- `test_episode_bundle.py`
 
 These prove that multi-step episodes can be exported and verified.
 
 ---
 
-### 9.9 Final Report Tests
+### 18.9 Final report tests
 
 Covered by:
 
-* `test_final_verifier_report.py`
+- `test_final_verifier_report.py`
 
 These prove that final reports are valid, hash-bound, and tamper-detecting.
 
 ---
 
-### 9.10 Auditor Tests
+### 18.10 Auditor tests
 
 Covered by:
 
-* `test_auditor.py`
+- `test_auditor.py`
 
 These prove that artifact-level audits work correctly.
 
 ---
 
-### 9.11 System Verifier Tests
+### 18.11 System verifier tests
 
 Covered by:
 
-* `test_system_verifier.py`
+- `test_system_verifier.py`
 
 These prove that multiple artifacts can be verified together.
 
 ---
 
-## 10. Current Stable Milestone
+### 18.12 UI and API tests
 
-The current stable checkpoint is:
+Covered by:
 
-```text
-stable proof carrying runtime checkpoint: 50 tests passing
-```
+- `test_api.py`
+- `test_ui_dashboard.py`
+- `test_ui_dashboard_routes.py`
+- `test_failure_lab_dashboard.py`
+- `test_action_playground.py`
+- `test_evidence_pack_ui.py`
 
-The committed Git checkpoint is intended to represent the first stable proof-carrying runtime milestone.
-
-At this milestone, the runtime can:
-
-* issue certificates,
-* verify certificates,
-* reject wrong keys,
-* reject signature tampering,
-* bind certificates to policy manifests,
-* reject policy tampering,
-* reject unsafe paths,
-* execute sandbox tools through a proxy,
-* emit receipts,
-* generate counterexamples,
-* build trace chains,
-* verify traces offline,
-* export proof bundles,
-* verify proof bundles offline,
-* export episode bundles,
-* verify episode bundles offline,
-* generate final verifier reports,
-* audit runtime artifacts,
-* verify the complete runtime system.
+These prove that browser/API routes are registered and return usable results.
 
 ---
 
-## 11. What Counts as a Valid Execution
+### 18.13 Release hardening tests
+
+Covered by:
+
+- `test_release_hardening.py`
+
+These prove that the release checker works and validates the current release structure.
+
+---
+
+## 19. What Counts as a Valid Execution
 
 A valid execution must satisfy all of the following:
 
@@ -1122,41 +1818,50 @@ If any condition fails, the runtime rejects execution.
 
 ---
 
-## 12. What Counts as Tampering
+## 20. What Counts as Tampering
 
-Tampering includes any unauthorized mutation to:
+Tampering includes unauthorized mutation to:
 
-* an action,
-* action arguments,
-* policy manifest,
-* policy signature,
-* certificate payload,
-* certificate signature,
-* certificate key id,
-* receipt,
-* trace entry,
-* proof bundle,
-* episode bundle,
-* final report,
-* audit input artifact.
+- an action,
+- action arguments,
+- policy manifest,
+- policy signature,
+- certificate payload,
+- certificate signature,
+- certificate key id,
+- receipt,
+- trace entry,
+- proof bundle,
+- episode bundle,
+- final report,
+- audit input artifact,
+- evidence pack contents.
 
-The runtime is designed so that tampering is detected through hash mismatch, signature mismatch, invariant failure, or replay verification failure.
+OMEGA detects tampering through:
+
+- hash mismatch,
+- signature mismatch,
+- invariant failure,
+- replay verification failure,
+- bundle verification failure,
+- system verification failure.
 
 ---
 
-## 13. Why Hashes Matter
+## 21. Why Hashes Matter
 
 Hashes are used throughout the system to bind objects together.
 
 Examples:
 
-* action hash binds certificate to action,
-* policy hash binds certificate to policy,
-* output hash binds receipt to result,
-* entry hash binds trace entry to its contents,
-* previous hash links trace entries,
-* bundle hash binds proof bundle contents,
-* aggregate hash binds audit reports.
+- action hash binds certificate to action,
+- policy hash binds certificate to policy,
+- output hash binds receipt to result,
+- entry hash binds trace entry to contents,
+- previous hash links trace entries,
+- bundle hash binds proof bundle contents,
+- archive hash binds evidence pack contents,
+- aggregate hash binds release and audit reports.
 
 This creates a chain of evidence.
 
@@ -1164,7 +1869,7 @@ If an attacker changes one part, the hash chain breaks.
 
 ---
 
-## 14. Why Canonical Serialization Matters
+## 22. Why Canonical Serialization Matters
 
 JSON can be formatted in different ways while representing the same object.
 
@@ -1185,23 +1890,25 @@ and:
 
 contain the same logical data but different text.
 
-Canonical serialization ensures the runtime hashes the logical object consistently.
+Canonical serialization ensures that the runtime hashes the logical object consistently.
 
 This is required for stable signatures and reproducible verification.
 
 ---
 
-## 15. Why Offline Verification Matters
+## 23. Why Offline Verification Matters
 
 A runtime decision is more trustworthy when it can be checked again later.
 
-Omega Runtime supports offline verification of:
+OMEGA supports offline verification of:
 
-* proof bundles,
-* episode bundles,
-* trace files,
-* final reports,
-* system verification reports.
+- proof bundles,
+- episode bundles,
+- trace files,
+- final reports,
+- system verification reports,
+- evidence packs,
+- release reports.
 
 This means the runtime does not only say:
 
@@ -1209,108 +1916,247 @@ This means the runtime does not only say:
 
 It produces artifacts that let another verifier check:
 
-> This action was valid because these hashes, signatures, receipts, and policies match.
+> This action was valid because these hashes, signatures, receipts, policies, and traces match.
 
 ---
 
-## 16. What This Is Not Yet
+## 24. Suggested Demo Flow
 
-This project is a strong runtime verification foundation, but it is not yet a complete production AGI safety system.
+Use this flow when explaining the project to someone.
 
-It does not yet provide:
-
-* distributed key management,
-* hardware-backed signing,
-* external API policy enforcement,
-* network sandboxing,
-* multi-user authorization,
-* formal theorem prover integration,
-* cloud deployment,
-* long-term certificate revocation,
-* complete adversarial red-team coverage.
-
-These are future extensions.
-
----
-
-## 17. Future Roadmap
-
-Possible next milestones:
-
-1. replace test signing with stronger production key management,
-2. add public-key verification for certificates,
-3. add certificate revocation lists,
-4. add richer tool permission schemas,
-5. add network/API tool sandboxing,
-6. add multi-agent run identity preservation,
-7. add formal transition specifications,
-8. add machine-checkable proof exports,
-9. add signed final verifier reports,
-10. add CI pipeline with test enforcement,
-11. add package installation metadata,
-12. add CLI entry points,
-13. add documentation site,
-14. add example notebooks,
-15. add threat-model expansion.
-
----
-
-## 18. Quick Start
-
-From project root:
+### Step 1: Prove the repository is healthy
 
 ```powershell
 python -m pytest
+python scripts/release_check.py --json
 ```
 
-Generate demo artifacts:
+Look for:
+
+```text
+83 passed
+release check passed
+```
+
+### Step 2: Show normal proof-carrying execution
 
 ```powershell
 python scripts/demo_proof_bundle.py
+```
+
+Look for:
+
+```text
+accepted: True
+proof bundle valid
+```
+
+### Step 3: Show replay verification
+
+```powershell
 python scripts/demo_replay_verifier.py
 ```
 
-Audit generated artifacts:
+Look for:
 
-```powershell
-python scripts/audit_runtime.py --proof-bundle artifacts\proof_bundle_demo.json --json
-python scripts/audit_runtime.py --trace traces\replay-verifier-demo.jsonl --json
+```text
+REPLAY VERIFIER: PASS
+offline replay verification passed
 ```
 
-Verify system evidence:
+### Step 4: Show failure lab
 
 ```powershell
-python scripts/verify_runtime_system.py `
-  --proof-bundle artifacts\proof_bundle_demo.json `
-  --trace traces\replay-verifier-demo.jsonl `
-  --json
+python scripts/demo_failure_lab.py
+```
+
+Look for:
+
+```text
+tampered proof bundle rejected
+tampered trace rejected
+missing evidence rejected
+```
+
+### Step 5: Show evidence pack export
+
+```powershell
+python scripts/demo_evidence_pack.py --json
+```
+
+Look for:
+
+```text
+evidence pack generated
+omega_evidence_pack.zip
+```
+
+### Step 6: Show browser UI
+
+```powershell
+python scripts/run_api.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/failure-lab
+http://127.0.0.1:8000/action-playground
+http://127.0.0.1:8000/evidence-pack
 ```
 
 ---
 
-## 19. Development Notes
+## 25. Milestone History
 
-Use this command before committing:
+### v0.1.0 — Stable Runtime Foundation
+
+Established the early runtime foundation.
+
+### v0.2.0 — CLI Packaging
+
+Added command-line packaging and verification workflows.
+
+### v0.3.0 — API Foundation
+
+Added FastAPI foundation and API runtime access.
+
+### v0.4.0 — UI Dashboard
+
+Added browser dashboard support.
+
+### v0.5.0 — Failure Demonstration Lab
+
+Added controlled scenarios that prove tampering and missing evidence are rejected.
+
+### v0.6.0 — Failure Lab Dashboard
+
+Connected the failure lab to a browser dashboard.
+
+Routes include:
+
+```text
+GET  /failure-lab
+POST /failure-lab/run
+GET  /failure-lab/report
+```
+
+### v0.7.0 — Agent Action Playground
+
+Added an interactive playground for allowed and rejected action scenarios.
+
+Routes include:
+
+```text
+GET  /action-playground
+GET  /action-playground/scenarios
+POST /action-playground/run
+POST /action-playground/run-all
+GET  /action-playground/report
+```
+
+### v0.8.0 — Evidence Pack
+
+Added portable evidence pack generation.
+
+Main command:
+
+```powershell
+python scripts/demo_evidence_pack.py --json
+```
+
+### v0.9.0 — Evidence Pack UI
+
+Added a browser UI for evidence pack generation and inspection.
+
+Open:
+
+```text
+http://127.0.0.1:8000/evidence-pack
+```
+
+### v1.0.0-rc1 — Release Hardening
+
+Added release readiness checks.
+
+Main command:
+
+```powershell
+python scripts/release_check.py --json
+```
+
+### v1.0.0 — Final Release
+
+Promoted the runtime to final v1.0.0.
+
+Validation state:
+
+```text
+83 tests passing
+release check passing
+v1.0.0 tag created
+main clean
+```
+
+---
+
+## 26. Development Workflow
+
+Before making changes:
+
+```powershell
+git status
+python -m pytest
+python scripts/release_check.py --json
+```
+
+Create a branch:
+
+```powershell
+git switch main
+git pull origin main
+git switch -c feature/my-change
+```
+
+After changes:
 
 ```powershell
 python -m pytest
+python scripts/release_check.py --json
+git status
+git diff --stat
 ```
 
-Expected result:
+Commit:
 
-```text
-50 passed
+```powershell
+git add <files>
+git commit -m "describe the change"
 ```
 
-Generated files such as artifacts, sandbox outputs, trace logs, Python caches, and backup files should not be committed.
+Merge when ready:
 
-The repository `.gitignore` is configured to exclude those generated files.
+```powershell
+git switch main
+git pull origin main
+git merge --no-ff feature/my-change -m "merge my change"
+python -m pytest
+python scripts/release_check.py --json
+git push origin main
+```
 
 ---
 
-## 20. Git Checkpoint
+## 27. Git Validation
 
-A clean stable checkpoint should look like:
+Check the current branch:
+
+```powershell
+git branch --show-current
+```
+
+Check clean state:
 
 ```powershell
 git status
@@ -1322,109 +2168,99 @@ Expected:
 nothing to commit, working tree clean
 ```
 
-View the latest commit:
+Check recent history:
 
 ```powershell
-git log --oneline --decorate -5
+git log --oneline --decorate -10
+```
+
+Check tags:
+
+```powershell
+git tag
+```
+
+Expected to include:
+
+```text
+v1.0.0
 ```
 
 ---
 
-## 21. Summary
+## 28. Generated Files
 
-Omega Runtime demonstrates a working proof-carrying runtime for controlled agent execution.
+OMEGA generates runtime evidence files during demos.
+
+Common generated paths:
+
+```text
+artifacts\proof_bundle_demo.json
+traces\replay-verifier-demo.jsonl
+artifacts\failure_lab\failure_lab_report.json
+artifacts\evidence_pack\evidence_pack_report.json
+artifacts\evidence_pack\omega_evidence_pack.zip
+artifacts\release\release_check_report.json
+```
+
+These files are useful for local validation and demos.
+
+They should generally not be committed unless intentionally adding a golden fixture.
+
+---
+
+## 29. Production Roadmap
+
+OMEGA v1.0.0 is a strong local verification foundation.
+
+Possible next milestones:
+
+1. production-grade key management,
+2. public-key certificate verification,
+3. certificate revocation lists,
+4. richer tool permission schemas,
+5. network/API sandboxing,
+6. external SaaS tool policy enforcement,
+7. multi-user authorization,
+8. multi-agent run identity preservation,
+9. formal transition specifications,
+10. machine-checkable proof exports,
+11. signed final verifier reports,
+12. CI pipeline enforcement,
+13. packaged CLI entry points,
+14. documentation site,
+15. example notebooks,
+16. adversarial red-team scenario expansion,
+17. cloud deployment guide,
+18. hardware-backed signing option,
+19. audit dashboard,
+20. policy authoring UI.
+
+---
+
+## 30. Summary
+
+OMEGA Runtime demonstrates a working proof-carrying runtime for controlled agent execution.
 
 It proves that a tool-using runtime can:
 
-* prevent unauthorized tool calls,
-* enforce policy-bound certificates,
-* reject tampering,
-* emit structured counterexamples,
-* produce verifiable receipts,
-* generate hash-linked traces,
-* verify execution offline,
-* export portable proof artifacts,
-* audit runtime evidence,
-* verify the full system state.
+- prevent unauthorized tool calls,
+- enforce policy-bound certificates,
+- reject tampering,
+- emit structured counterexamples,
+- produce verifiable receipts,
+- generate hash-linked traces,
+- verify execution offline,
+- export portable proof artifacts,
+- generate evidence packs,
+- audit runtime evidence,
+- verify the full system state,
+- validate release readiness.
 
-The central achievement is this:
+The central achievement is:
 
-> Every accepted execution is backed by verifiable evidence.
-> Every rejected execution is explained by a concrete invariant failure.
+> Every accepted execution is backed by verifiable evidence.  
+> Every rejected execution is explained by a concrete invariant failure.  
 > Every exported artifact can be checked again offline.
 
-This is the foundation for building safer, more accountable, and more formally controlled tool-using AI agents.
-
-
-```
-
-
-## v0.6.0 — Failure Lab Dashboard
-
-The v0.6.0 milestone connects the failure demonstration lab directly to the browser UI.
-
-### What this adds
-
-- `GET /failure-lab` — browser dashboard for demonstrating caught failures.
-- `GET /ui/failure-lab` — alias route for the same dashboard.
-- `POST /failure-lab/run` — runs the failure lab from the API and returns the machine-readable report.
-- `GET /failure-lab/report` — returns the latest generated failure lab report, if present.
-- `omega_runtime/failure_lab_dashboard.py` — isolated dashboard route module.
-- `tests/test_failure_lab_dashboard.py` — route and API contract tests.
-
-### Why this matters
-
-The failure lab is the simplest way to show the value of the runtime.
-
-A normal agent log can claim that a tool call succeeded. OMEGA goes further:
-
-1. It checks whether the action was allowed.
-2. It checks whether the action was bound to a certificate.
-3. It checks whether the execution emitted receipts.
-4. It checks whether the trace can be replayed offline.
-5. It checks whether tampering is detected after the fact.
-6. It checks whether the whole run survives system-level verification.
-
-### Run the dashboard
-
-```powershell
-python scripts/run_api.py
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000/failure-lab
-```
-
-To generate a fresh failure report from the API:
-
-```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/failure-lab/run
-```
-
-To read the latest generated report:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/failure-lab/report
-```
-
-
-
-## v0.7.0 — Agent Action Playground
-
-Routes added:
-
-- GET /action-playground
-- GET /action-playground/scenarios
-- POST /action-playground/run
-- POST /action-playground/run-all
-- GET /action-playground/report
-
-Run:
-
-    python scripts/run_api.py
-
-Open:
-
-    http://127.0.0.1:8000/action-playground
+OMEGA Runtime is the foundation for building safer, more accountable, and more formally controlled tool-using AI agents.
