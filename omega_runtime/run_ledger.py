@@ -373,3 +373,143 @@ __all__ = [
     "sha256_text",
     "write_run_record",
 ]
+# ---------------------------------------------------------------------
+# OMEGA v1.3.0 live OpenAI CLI auto-record compatibility helper
+# ---------------------------------------------------------------------
+
+def record_openai_report(report, *, ledger_path=None):
+    """
+    Record one OpenAI adapter report into the OMEGA run ledger.
+
+    This helper is intentionally self-contained so the CLI can record live
+    OpenAI calls without depending on the demo script. It does not store the
+    API key. It records the report, hashes, prompt preview, response hash,
+    mode, model, and a unique per-run JSON file.
+    """
+    import json
+    import re
+    import secrets
+    from datetime import datetime, timezone
+    from hashlib import sha256
+    from pathlib import Path
+
+    ledger_version = "OMEGA_RUN_LEDGER_V1"
+
+    def utc_now() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    def safe_json(value):
+        return json.loads(json.dumps(value, default=str))
+
+    def canonical_json(value) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+    def pretty_json(value) -> str:
+        return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+    def slug(value, default: str = "unknown") -> str:
+        raw = str(value or default)
+        cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-")
+        return (cleaned or default)[:80]
+
+    if isinstance(report, dict):
+        report_copy = safe_json(report)
+    else:
+        report_copy = {
+            "accepted": False,
+            "reason": f"unsupported report type: {type(report).__name__}",
+            "raw_report": str(report),
+        }
+
+    base_dir = Path("artifacts") / "openai_live"
+    ledger_file = Path(ledger_path) if ledger_path is not None else base_dir / "openai_run_ledger.jsonl"
+    runs_dir = ledger_file.parent / "runs"
+
+    ledger_file.parent.mkdir(parents=True, exist_ok=True)
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    report_sha256 = sha256(canonical_json(report_copy).encode("utf-8")).hexdigest()
+
+    recorded_at = utc_now()
+    record_id = sha256(
+        f"{report_sha256}|{recorded_at}|{secrets.token_hex(16)}".encode("utf-8")
+    ).hexdigest()[:32]
+
+    generated_at = str(report_copy.get("generated_at") or recorded_at)
+    stamp = re.sub(r"[^0-9A-Za-z]", "", generated_at)[:24]
+    if not stamp:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+    mode = str(report_copy.get("mode") or ("live" if report_copy.get("live") else "dry_run"))
+    model = str(report_copy.get("model") or "unknown-model")
+    prompt_hash = str(report_copy.get("prompt_hash") or "no_prompt_hash")
+    response_hash = str(report_copy.get("response_hash") or "no_response_hash")
+
+    record_filename = (
+        f"{stamp}_"
+        f"{slug(mode)}_"
+        f"{slug(model)}_"
+        f"{slug(prompt_hash[:12], 'prompt')}_"
+        f"{slug(response_hash[:12], 'response')}_"
+        f"{record_id[:12]}.json"
+    )
+
+    record_path = runs_dir / record_filename
+
+    standard_fields = [
+        "accepted",
+        "adapter_version",
+        "aggregate_hash",
+        "api_key_stored",
+        "cli_command",
+        "cli_version",
+        "generated_at",
+        "live",
+        "max_output_tokens",
+        "mode",
+        "model",
+        "prompt_hash",
+        "prompt_preview",
+        "reason",
+        "report_path",
+        "response_hash",
+        "response_text",
+        "system_prompt_hash",
+    ]
+
+    record = {
+        "ledger_version": ledger_version,
+        "record_id": record_id,
+        "record_type": "openai_report",
+        "recorded_at": recorded_at,
+        "record_path": str(record_path),
+        "report_sha256": report_sha256,
+        "report": report_copy,
+    }
+
+    for key in standard_fields:
+        if key in report_copy:
+            record[key] = report_copy[key]
+
+    record_path.write_text(pretty_json(record) + "\n", encoding="utf-8")
+    record_file_sha256 = sha256(record_path.read_bytes()).hexdigest()
+
+    ledger_entry = {
+        key: value
+        for key, value in record.items()
+        if key != "report"
+    }
+    ledger_entry["record_file_sha256"] = record_file_sha256
+
+    with ledger_file.open("a", encoding="utf-8") as handle:
+        handle.write(canonical_json(ledger_entry) + "\n")
+
+    return {
+        "accepted": True,
+        "ledger_version": ledger_version,
+        "reason": "OpenAI report recorded",
+        "ledger_path": str(ledger_file),
+        "record_path": str(record_path),
+        "record_id": record_id,
+        "record_file_sha256": record_file_sha256,
+    }
