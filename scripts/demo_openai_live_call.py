@@ -45,7 +45,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--prompt",
-        default="Explain OMEGA Runtime in one sentence for a non-technical executive.",
+        default="Explain the value of verifiable AI execution in one sentence for a non-technical executive.",
         help="Prompt to send through the adapter.",
     )
 
@@ -136,4 +136,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
