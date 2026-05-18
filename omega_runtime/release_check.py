@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Any
 
 RELEASE_CHECK_VERSION = "OMEGA_RELEASE_CHECK_V1"
-RELEASE_VERSION = "1.1.0"
+RELEASE_VERSION = "1.2.0"
 
 REQUIRED_FILES = [
     "README.md",
     "pyproject.toml",
     "omega_runtime/api.py",
+    "omega_runtime/cli.py",
     "omega_runtime/release_check.py",
     "scripts/release_check.py",
     "scripts/demo_evidence_pack.py",
@@ -37,6 +38,7 @@ MILESTONE_TAGS = [
     "v0.8.0-evidence-pack",
     "v0.9.0-evidence-pack-ui",
     "v1.0.0-rc1-release-hardening",
+    "v1.1.0-openai-live-adapter",
     "v1.0.0",
 ]
 

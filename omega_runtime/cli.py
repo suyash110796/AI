@@ -1,208 +1,502 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
+import importlib
+import inspect
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
+
+CLI_VERSION = "OMEGA_CLI_CONSOLIDATION_V1"
+
+DEFAULT_OPENAI_PROMPT = (
+    "Explain the value of verifiable AI execution in one sentence "
+    "for a non-technical executive."
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _json_default(value: Any) -> Any:
-    if hasattr(value, "__dict__"):
-        return dict(value.__dict__)
+    if isinstance(value, Path):
+        return str(value)
+
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+
+    if hasattr(value, "dict"):
+        return value.dict()
+
     return str(value)
 
 
-def _print_payload(payload: dict[str, Any], as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
-        return
+def _print_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
 
-    for key, value in payload.items():
-        if isinstance(value, (dict, list)):
-            print(f"{key}: {json.dumps(value, indent=2, sort_keys=True, default=_json_default)}")
+
+def _parse_first_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+
+        if isinstance(value, dict):
+            return value
+
+    return None
+
+
+def _normalize_payload(value: Any, *, fallback_reason: str) -> dict[str, Any]:
+    if isinstance(value, dict):
+        payload = dict(value)
+    elif hasattr(value, "model_dump"):
+        payload = dict(value.model_dump())
+    elif hasattr(value, "dict"):
+        payload = dict(value.dict())
+    else:
+        payload = {
+            "accepted": False,
+            "reason": fallback_reason,
+            "raw": str(value),
+        }
+
+    payload.setdefault("accepted", bool(payload.get("passed", False)))
+    payload.setdefault("reason", fallback_reason)
+    payload.setdefault("cli_version", CLI_VERSION)
+    return payload
+
+
+def _run_script(
+    script_path: str,
+    *,
+    script_args: Iterable[str] = (),
+    cli_command: str,
+    parse_json: bool = True,
+) -> dict[str, Any]:
+    script = Path(script_path)
+
+    if not script.exists():
+        return {
+            "accepted": False,
+            "cli_version": CLI_VERSION,
+            "cli_command": cli_command,
+            "reason": f"script not found: {script_path}",
+            "script": script_path,
+        }
+
+    command = [sys.executable, str(script), *list(script_args)]
+
+    completed = subprocess.run(
+        command,
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+    )
+
+    parsed = _parse_first_json_object(completed.stdout) if parse_json else None
+
+    if parsed is not None:
+        payload = _normalize_payload(
+            parsed,
+            fallback_reason="script produced JSON payload",
+        )
+    else:
+        payload = {
+            "accepted": completed.returncode == 0,
+            "reason": (
+                "script completed"
+                if completed.returncode == 0
+                else "script failed"
+            ),
+            "stdout": completed.stdout,
+        }
+
+    payload["cli_version"] = CLI_VERSION
+    payload["cli_command"] = cli_command
+    payload["command"] = command
+    payload["returncode"] = completed.returncode
+    payload["stderr"] = completed.stderr
+
+    if completed.returncode != 0:
+        payload["accepted"] = False
+
+    return payload
+
+
+def _proof_bundle_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_proof_bundle.py",
+        cli_command="proof-bundle",
+        parse_json=True,
+    )
+
+
+def _replay_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_replay_verifier.py",
+        cli_command="replay",
+        parse_json=True,
+    )
+
+
+def _failure_lab_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_failure_lab.py",
+        cli_command="failure-lab",
+        parse_json=True,
+    )
+
+
+def _evidence_pack_payload(args: argparse.Namespace) -> dict[str, Any]:
+    script_args: list[str] = ["--json"]
+
+    output_dir = getattr(args, "output_dir", None)
+    if output_dir:
+        script_args.extend(["--output-dir", str(output_dir)])
+
+    return _run_script(
+        "scripts/demo_evidence_pack.py",
+        script_args=script_args,
+        cli_command="evidence-pack",
+        parse_json=True,
+    )
+
+
+def _release_check_payload(args: argparse.Namespace) -> dict[str, Any]:
+    script_args: list[str] = ["--json"]
+
+    out = getattr(args, "out", None)
+    if out:
+        script_args.extend(["--out", str(out)])
+
+    return _run_script(
+        "scripts/release_check.py",
+        script_args=script_args,
+        cli_command="release-check",
+        parse_json=True,
+    )
+
+
+def _build_openai_request(openai_live: Any, args: argparse.Namespace) -> Any:
+    request_class = (
+        getattr(openai_live, "OpenAILiveRequest", None)
+        or getattr(openai_live, "OpenAIRequest", None)
+        or getattr(openai_live, "OpenAILiveCallRequest", None)
+    )
+
+    live = bool(getattr(args, "live", False))
+    if bool(getattr(args, "dry_run", False)):
+        live = False
+
+    base_values: dict[str, Any] = {
+        "prompt": args.prompt,
+        "user_prompt": args.prompt,
+        "input_text": args.prompt,
+        "live": live,
+        "model": args.model,
+        "max_output_tokens": args.max_output_tokens,
+        "system_prompt": (
+            "You are a concise assistant. Answer clearly and directly."
+        ),
+    }
+
+    if request_class is None:
+        return base_values
+
+    signature = inspect.signature(request_class)
+    kwargs: dict[str, Any] = {}
+
+    for name, parameter in signature.parameters.items():
+        if name in base_values:
+            kwargs[name] = base_values[name]
+        elif parameter.default is inspect.Parameter.empty:
+            if name.endswith("prompt"):
+                kwargs[name] = args.prompt
+            elif name == "request_id":
+                kwargs[name] = f"omega-cli-{_utc_now()}"
+            else:
+                raise TypeError(
+                    f"Cannot build {request_class.__name__}: "
+                    f"missing required field {name!r}"
+                )
+
+    return request_class(**kwargs)
+
+
+def _openai_payload(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        openai_live = importlib.import_module("omega_runtime.openai_live")
+        runner = getattr(openai_live, "run_openai_live")
+
+        request = _build_openai_request(openai_live, args)
+
+        if isinstance(request, dict):
+            try:
+                result = runner(**request)
+            except TypeError:
+                result = runner(request)
         else:
-            print(f"{key}: {value}")
+            result = runner(request)
 
+        payload = _normalize_payload(
+            result,
+            fallback_reason="OpenAI adapter completed",
+        )
+        payload["cli_version"] = CLI_VERSION
+        payload["cli_command"] = "openai"
+        return payload
 
-def _tuple_verdict_to_payload(result: Any, valid_reason: str = "valid") -> dict[str, Any]:
-    if isinstance(result, tuple) and len(result) >= 2:
-        accepted = bool(result[0])
-        reason = str(result[1])
+    except Exception as exc:
         return {
-            "accepted": accepted,
-            "reason": reason,
+            "accepted": False,
+            "cli_version": CLI_VERSION,
+            "cli_command": "openai",
+            "reason": "OpenAI adapter command failed",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
         }
 
-    if isinstance(result, dict):
-        if "accepted" not in result:
-            if "passed" in result:
-                result["accepted"] = bool(result["passed"])
-            elif "valid" in result:
-                result["accepted"] = bool(result["valid"])
-        if "reason" not in result:
-            result["reason"] = valid_reason if result.get("accepted") else "verification failed"
-        return result
 
-    if hasattr(result, "passed"):
-        return {
-            "accepted": bool(getattr(result, "passed")),
-            "passed": bool(getattr(result, "passed")),
-            "reason": str(getattr(result, "reason", valid_reason)),
-            "entries_checked": getattr(result, "entries_checked", None),
-            "final_entry_hash": getattr(result, "final_entry_hash", None),
-            "violations": getattr(result, "violations", []),
-        }
+def _all_payload(args: argparse.Namespace) -> dict[str, Any]:
+    commands: list[tuple[str, Any, argparse.Namespace]] = [
+        ("proof-bundle", _proof_bundle_payload, argparse.Namespace()),
+        ("replay", _replay_payload, argparse.Namespace()),
+        ("failure-lab", _failure_lab_payload, argparse.Namespace()),
+        (
+            "evidence-pack",
+            _evidence_pack_payload,
+            argparse.Namespace(output_dir=None),
+        ),
+        ("release-check", _release_check_payload, argparse.Namespace(out=None)),
+        (
+            "openai",
+            _openai_payload,
+            argparse.Namespace(
+                live=False,
+                dry_run=True,
+                prompt=DEFAULT_OPENAI_PROMPT,
+                model=getattr(args, "model", "gpt-4.1-mini"),
+                max_output_tokens=getattr(args, "max_output_tokens", 300),
+            ),
+        ),
+    ]
+
+    results: dict[str, Any] = {}
+
+    for name, handler, command_args in commands:
+        results[name] = handler(command_args)
+
+    accepted = all(bool(value.get("accepted")) for value in results.values())
 
     return {
-        "accepted": False,
-        "reason": f"unsupported verifier result type: {type(result).__name__}",
-        "raw": str(result),
+        "accepted": accepted,
+        "cli_version": CLI_VERSION,
+        "cli_command": "all",
+        "reason": (
+            "all consolidated commands passed"
+            if accepted
+            else "one or more consolidated commands failed"
+        ),
+        "generated_at": _utc_now(),
+        "results": results,
     }
 
 
-def verify_proof_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="omega-verify-proof",
-        description="Verify an OMEGA proof bundle."
+def _add_json_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Emit machine-readable JSON output. "
+            "Kept for compatibility with helper scripts."
+        ),
     )
-    parser.add_argument("path", help="Path to proof bundle JSON file.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="omega",
+        description="Consolidated CLI for OMEGA Runtime.",
+    )
+
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Print OMEGA consolidated CLI version.",
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    proof = subparsers.add_parser(
+        "proof-bundle",
+        help="Generate and verify the proof bundle demo.",
+    )
+    _add_json_flag(proof)
+    proof.set_defaults(handler=_proof_bundle_payload)
+
+    replay = subparsers.add_parser(
+        "replay",
+        help="Run replay verifier demo.",
+    )
+    _add_json_flag(replay)
+    replay.set_defaults(handler=_replay_payload)
+
+    failure = subparsers.add_parser(
+        "failure-lab",
+        help="Run failure lab scenarios.",
+    )
+    _add_json_flag(failure)
+    failure.set_defaults(handler=_failure_lab_payload)
+
+    evidence = subparsers.add_parser(
+        "evidence-pack",
+        help="Generate the evidence pack archive and report.",
+    )
+    _add_json_flag(evidence)
+    evidence.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional output directory for evidence pack artifacts.",
+    )
+    evidence.set_defaults(handler=_evidence_pack_payload)
+
+    release = subparsers.add_parser(
+        "release-check",
+        help="Run release hardening checks.",
+    )
+    _add_json_flag(release)
+    release.add_argument(
+        "--out",
+        default=None,
+        help="Optional output path for release check report.",
+    )
+    release.set_defaults(handler=_release_check_payload)
+
+    openai_parser = subparsers.add_parser(
+        "openai",
+        help="Run the OpenAI adapter in dry-run or live mode.",
+    )
+    _add_json_flag(openai_parser)
+
+    mode = openai_parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--live",
+        action="store_true",
+        help="Make a real OpenAI API call using OPENAI_API_KEY.",
+    )
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not make a network call. This is the default.",
+    )
+
+    openai_parser.add_argument(
+        "--prompt",
+        default=DEFAULT_OPENAI_PROMPT,
+        help="Prompt to send to the OpenAI adapter.",
+    )
+    openai_parser.add_argument(
+        "--model",
+        default="gpt-4.1-mini",
+        help="OpenAI model name.",
+    )
+    openai_parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=300,
+        help="Maximum output tokens.",
+    )
+    openai_parser.set_defaults(handler=_openai_payload)
+
+    all_parser = subparsers.add_parser(
+        "all",
+        help="Run the main internal helper demos/checks behind one command.",
+    )
+    _add_json_flag(all_parser)
+    all_parser.add_argument(
+        "--model",
+        default="gpt-4.1-mini",
+        help="OpenAI model used for the dry-run OpenAI adapter check.",
+    )
+    all_parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=300,
+        help="Maximum output tokens for the OpenAI adapter check.",
+    )
+    all_parser.set_defaults(handler=_all_payload)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
-    from omega_runtime.core.proof_bundle import verify_proof_bundle
+    if args.version:
+        _print_json(
+            {
+                "accepted": True,
+                "cli_version": CLI_VERSION,
+                "reason": "version printed",
+            }
+        )
+        return 0
 
-    payload = _tuple_verdict_to_payload(verify_proof_bundle(Path(args.path)), "proof bundle valid")
-    payload.setdefault("artifact_type", "proof_bundle")
-    payload.setdefault("path", str(Path(args.path)))
+    handler = getattr(args, "handler", None)
 
-    _print_payload(payload, args.json)
-    return 0 if payload["accepted"] else 1
+    if handler is None:
+        parser.print_help()
+        return 0
+
+    payload = handler(args)
+    _print_json(payload)
+
+    return 0 if bool(payload.get("accepted")) else 1
+
+
+def verify_proof_main(argv: list[str] | None = None) -> int:
+    return main(["proof-bundle", *(argv or [])])
 
 
 def verify_trace_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="omega-verify-trace",
-        description="Verify an OMEGA replay trace."
-    )
-    parser.add_argument("path", help="Path to replay trace JSONL file.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    args = parser.parse_args(argv)
-
-    from omega_runtime.core.replay_verifier import verify_replay_trace
-
-    payload = _tuple_verdict_to_payload(verify_replay_trace(Path(args.path)), "offline replay verification passed")
-    payload.setdefault("artifact_type", "trace")
-    payload.setdefault("path", str(Path(args.path)))
-
-    _print_payload(payload, args.json)
-    return 0 if payload["accepted"] else 1
-
-
-def verify_episode_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="omega-verify-episode",
-        description="Verify an OMEGA episode bundle."
-    )
-    parser.add_argument("path", help="Path to episode bundle JSON file.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    args = parser.parse_args(argv)
-
-    from omega_runtime.core.episode_bundle import verify_episode_bundle_json
-
-    payload = verify_episode_bundle_json(Path(args.path))
-    payload.setdefault("artifact_type", "episode_bundle")
-    payload.setdefault("path", str(Path(args.path)))
-
-    _print_payload(payload, args.json)
-    return 0 if payload["accepted"] else 1
+    return main(["replay", *(argv or [])])
 
 
 def system_verify_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="omega-system-verify",
-        description="Verify proof bundles and traces as one runtime system."
-    )
-    parser.add_argument("--proof-bundle", action="append", default=[], help="Proof bundle path. Can be repeated.")
-    parser.add_argument("--trace", action="append", default=[], help="Replay trace path. Can be repeated.")
-    parser.add_argument("--out", help="Optional output JSON report path.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    args = parser.parse_args(argv)
+    return main(["failure-lab", *(argv or [])])
 
-    from omega_runtime.core.system_verifier import verify_runtime_system
 
-    payload = verify_runtime_system(
-        proof_bundles=args.proof_bundle,
-        traces=args.trace,
-    )
-
-    if args.out:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True, default=_json_default) + "\n",
-            encoding="utf-8",
-        )
-
-    _print_payload(payload, args.json)
-    return 0 if payload["accepted"] else 1
+def verify_episode_main(argv: list[str] | None = None) -> int:
+    return main(["evidence-pack", *(argv or [])])
 
 
 def audit_main(argv: list[str] | None = None) -> int:
-    """
-    CLI compatibility wrapper.
-
-    The canonical auditor already exists as scripts/audit_runtime.py and is
-    covered by tests. This entry point delegates to that script when running
-    from the project root, preserving exact existing behavior.
-    """
-    script = Path("scripts/audit_runtime.py")
-
-    if script.exists():
-        completed = subprocess.run(
-            [sys.executable, str(script), *(argv if argv is not None else sys.argv[1:])],
-            text=True,
-        )
-        return int(completed.returncode)
-
-    parser = argparse.ArgumentParser(
-        prog="omega-audit",
-        description="Run the OMEGA runtime auditor."
-    )
-    parser.add_argument("--proof-bundle", action="append", default=[])
-    parser.add_argument("--trace", action="append", default=[])
-    parser.add_argument("--out")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args(argv)
-
-    from omega_runtime.core.system_verifier import verify_runtime_system
-
-    payload = verify_runtime_system(
-        proof_bundles=args.proof_bundle,
-        traces=args.trace,
-    )
-    payload["audit_type"] = "OMEGA_AUDITOR_V1"
-    payload["auditor_version"] = "OMEGA_AUDITOR_V1"
-    if payload.get("accepted"):
-        payload["reason"] = "runtime audit passed"
-
-    if args.out:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True, default=_json_default) + "\n",
-            encoding="utf-8",
-        )
-
-    _print_payload(payload, args.json)
-    return 0 if payload["accepted"] else 1
+    return main(["release-check", *(argv or [])])
 
 
 __all__ = [
-    "verify_proof_main",
-    "verify_trace_main",
-    "verify_episode_main",
+    "CLI_VERSION",
+    "build_parser",
+    "main",
     "audit_main",
     "system_verify_main",
+    "verify_episode_main",
+    "verify_proof_main",
+    "verify_trace_main",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
