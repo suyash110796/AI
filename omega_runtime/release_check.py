@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 RELEASE_CHECK_VERSION = "OMEGA_RELEASE_CHECK_V1"
-RELEASE_VERSION = "1.0.0"
+RELEASE_VERSION = "1.1.0"
 
 REQUIRED_FILES = [
     "README.md",
@@ -37,6 +37,7 @@ MILESTONE_TAGS = [
     "v0.8.0-evidence-pack",
     "v0.9.0-evidence-pack-ui",
     "v1.0.0-rc1-release-hardening",
+    "v1.0.0",
 ]
 
 def _utc_now() -> str:

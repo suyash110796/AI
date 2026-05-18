@@ -9,7 +9,7 @@ dependencies = [
   "uvicorn>=0.30",
 ]
 name = "omega-runtime"
-version = "1.0.0"
+version = "1.1.0"
 description = "Proof-carrying runtime for tool-using AI agents with certified traces, replay verification, proof bundles, episode bundles, and system audits."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,3 +51,4 @@ omega-system-verify = "omega_runtime.cli:system_verify_main"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
