@@ -1,11 +1,4 @@
-﻿"""
-Consolidated OMEGA Runtime CLI.
-
-This module turns the older demo scripts into internal helpers behind one
-public command surface.
-"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import importlib
@@ -13,25 +6,31 @@ import inspect
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-
+from typing import Any, Iterable
 
 CLI_VERSION = "OMEGA_CLI_CONSOLIDATION_V1"
+
+DEFAULT_OPENAI_PROMPT = (
+    "Explain the value of verifiable AI execution in one sentence "
+    "for a non-technical executive."
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _json_default(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
 
-    if hasattr(value, "model_dump") and callable(value.model_dump):
+    if hasattr(value, "model_dump"):
         return value.model_dump()
 
-    if hasattr(value, "dict") and callable(value.dict):
+    if hasattr(value, "dict"):
         return value.dict()
-
-    if hasattr(value, "__dict__"):
-        return value.__dict__
 
     return str(value)
 
@@ -40,195 +39,289 @@ def _print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
 
 
-def _with_cli_metadata(payload: dict[str, Any], command: str) -> dict[str, Any]:
-    enriched = dict(payload)
-    enriched.setdefault("accepted", bool(payload.get("accepted", False)))
-    enriched.setdefault("reason", "command completed")
-    enriched["cli_version"] = CLI_VERSION
-    enriched["cli_command"] = command
-    return enriched
-
-
 def _parse_first_json_object(text: str) -> dict[str, Any] | None:
     decoder = json.JSONDecoder()
 
-    for index, character in enumerate(text):
-        if character != "{":
+    for index, char in enumerate(text):
+        if char != "{":
             continue
 
         try:
-            parsed, _end = decoder.raw_decode(text[index:])
+            value, _end = decoder.raw_decode(text[index:])
         except json.JSONDecodeError:
             continue
 
-        if isinstance(parsed, dict):
-            return parsed
+        if isinstance(value, dict):
+            return value
 
     return None
 
 
-def _run_script(script_path: str, extra_args: list[str] | None = None) -> dict[str, Any]:
-    args = [sys.executable, script_path]
+def _normalize_payload(value: Any, *, fallback_reason: str) -> dict[str, Any]:
+    if isinstance(value, dict):
+        payload = dict(value)
+    elif hasattr(value, "model_dump"):
+        payload = dict(value.model_dump())
+    elif hasattr(value, "dict"):
+        payload = dict(value.dict())
+    else:
+        payload = {
+            "accepted": False,
+            "reason": fallback_reason,
+            "raw": str(value),
+        }
 
-    if extra_args:
-        args.extend(extra_args)
+    payload.setdefault("accepted", bool(payload.get("passed", False)))
+    payload.setdefault("reason", fallback_reason)
+    payload.setdefault("cli_version", CLI_VERSION)
+    return payload
+
+
+def _run_script(
+    script_path: str,
+    *,
+    script_args: Iterable[str] = (),
+    cli_command: str,
+    parse_json: bool = True,
+) -> dict[str, Any]:
+    script = Path(script_path)
+
+    if not script.exists():
+        return {
+            "accepted": False,
+            "cli_version": CLI_VERSION,
+            "cli_command": cli_command,
+            "reason": f"script not found: {script_path}",
+            "script": script_path,
+        }
+
+    command = [sys.executable, str(script), *list(script_args)]
 
     completed = subprocess.run(
-        args,
+        command,
         cwd=Path.cwd(),
         text=True,
         capture_output=True,
     )
 
-    parsed = _parse_first_json_object(completed.stdout)
+    parsed = _parse_first_json_object(completed.stdout) if parse_json else None
+
     if parsed is not None:
-        parsed.setdefault("accepted", completed.returncode == 0)
-        parsed.setdefault("cli_version", CLI_VERSION)
-        parsed.setdefault("command", args)
-        parsed.setdefault("returncode", completed.returncode)
-        parsed.setdefault("stderr", completed.stderr)
-        return parsed
-
-    return {
-        "accepted": completed.returncode == 0,
-        "cli_version": CLI_VERSION,
-        "command": args,
-        "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
-        "reason": "script completed" if completed.returncode == 0 else "script failed",
-    }
-
-
-def _call_module_function(
-    module_name: str,
-    preferred_functions: list[str],
-    kwargs: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    kwargs = kwargs or {}
-    module = importlib.import_module(module_name)
-
-    for function_name in preferred_functions:
-        function = getattr(module, function_name, None)
-
-        if function is None or not callable(function):
-            continue
-
-        signature = inspect.signature(function)
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in signature.parameters
+        payload = _normalize_payload(
+            parsed,
+            fallback_reason="script produced JSON payload",
+        )
+    else:
+        payload = {
+            "accepted": completed.returncode == 0,
+            "reason": (
+                "script completed"
+                if completed.returncode == 0
+                else "script failed"
+            ),
+            "stdout": completed.stdout,
         }
 
-        result = function(**supported_kwargs)
+    payload["cli_version"] = CLI_VERSION
+    payload["cli_command"] = cli_command
+    payload["command"] = command
+    payload["returncode"] = completed.returncode
+    payload["stderr"] = completed.stderr
 
-        if isinstance(result, dict):
-            return result
+    if completed.returncode != 0:
+        payload["accepted"] = False
 
-        if hasattr(result, "model_dump") and callable(result.model_dump):
-            return result.model_dump()
+    return payload
 
-        if hasattr(result, "dict") and callable(result.dict):
-            return result.dict()
 
+def _proof_bundle_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_proof_bundle.py",
+        cli_command="proof-bundle",
+        parse_json=True,
+    )
+
+
+def _replay_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_replay_verifier.py",
+        cli_command="replay",
+        parse_json=True,
+    )
+
+
+def _failure_lab_payload(_args: argparse.Namespace) -> dict[str, Any]:
+    return _run_script(
+        "scripts/demo_failure_lab.py",
+        cli_command="failure-lab",
+        parse_json=True,
+    )
+
+
+def _evidence_pack_payload(args: argparse.Namespace) -> dict[str, Any]:
+    script_args: list[str] = ["--json"]
+
+    output_dir = getattr(args, "output_dir", None)
+    if output_dir:
+        script_args.extend(["--output-dir", str(output_dir)])
+
+    return _run_script(
+        "scripts/demo_evidence_pack.py",
+        script_args=script_args,
+        cli_command="evidence-pack",
+        parse_json=True,
+    )
+
+
+def _release_check_payload(args: argparse.Namespace) -> dict[str, Any]:
+    script_args: list[str] = ["--json"]
+
+    out = getattr(args, "out", None)
+    if out:
+        script_args.extend(["--out", str(out)])
+
+    return _run_script(
+        "scripts/release_check.py",
+        script_args=script_args,
+        cli_command="release-check",
+        parse_json=True,
+    )
+
+
+def _build_openai_request(openai_live: Any, args: argparse.Namespace) -> Any:
+    request_class = (
+        getattr(openai_live, "OpenAILiveRequest", None)
+        or getattr(openai_live, "OpenAIRequest", None)
+        or getattr(openai_live, "OpenAILiveCallRequest", None)
+    )
+
+    live = bool(getattr(args, "live", False))
+    if bool(getattr(args, "dry_run", False)):
+        live = False
+
+    base_values: dict[str, Any] = {
+        "prompt": args.prompt,
+        "user_prompt": args.prompt,
+        "input_text": args.prompt,
+        "live": live,
+        "model": args.model,
+        "max_output_tokens": args.max_output_tokens,
+        "system_prompt": (
+            "You are a concise assistant. Answer clearly and directly."
+        ),
+    }
+
+    if request_class is None:
+        return base_values
+
+    signature = inspect.signature(request_class)
+    kwargs: dict[str, Any] = {}
+
+    for name, parameter in signature.parameters.items():
+        if name in base_values:
+            kwargs[name] = base_values[name]
+        elif parameter.default is inspect.Parameter.empty:
+            if name.endswith("prompt"):
+                kwargs[name] = args.prompt
+            elif name == "request_id":
+                kwargs[name] = f"omega-cli-{_utc_now()}"
+            else:
+                raise TypeError(
+                    f"Cannot build {request_class.__name__}: "
+                    f"missing required field {name!r}"
+                )
+
+    return request_class(**kwargs)
+
+
+def _openai_payload(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        openai_live = importlib.import_module("omega_runtime.openai_live")
+        runner = getattr(openai_live, "run_openai_live")
+
+        request = _build_openai_request(openai_live, args)
+
+        if isinstance(request, dict):
+            try:
+                result = runner(**request)
+            except TypeError:
+                result = runner(request)
+        else:
+            result = runner(request)
+
+        payload = _normalize_payload(
+            result,
+            fallback_reason="OpenAI adapter completed",
+        )
+        payload["cli_version"] = CLI_VERSION
+        payload["cli_command"] = "openai"
+        return payload
+
+    except Exception as exc:
         return {
-            "accepted": True,
-            "reason": "module function completed",
-            "result": result,
+            "accepted": False,
+            "cli_version": CLI_VERSION,
+            "cli_command": "openai",
+            "reason": "OpenAI adapter command failed",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
         }
 
-    return {
-        "accepted": False,
-        "reason": "no supported function found",
-        "module": module_name,
-        "preferred_functions": preferred_functions,
-    }
 
-
-def command_proof_bundle(_args: argparse.Namespace) -> dict[str, Any]:
-    return _with_cli_metadata(
-        _run_script("scripts/demo_proof_bundle.py"),
-        "proof-bundle",
-    )
-
-
-def command_replay(_args: argparse.Namespace) -> dict[str, Any]:
-    return _with_cli_metadata(
-        _run_script("scripts/demo_replay_verifier.py"),
-        "replay",
-    )
-
-
-def command_failure_lab(_args: argparse.Namespace) -> dict[str, Any]:
-    return _with_cli_metadata(
-        _run_script("scripts/demo_failure_lab.py"),
-        "failure-lab",
-    )
-
-
-def command_evidence_pack(_args: argparse.Namespace) -> dict[str, Any]:
-    return _with_cli_metadata(
-        _run_script("scripts/demo_evidence_pack.py", ["--json"]),
-        "evidence-pack",
-    )
-
-
-def command_release_check(args: argparse.Namespace) -> dict[str, Any]:
-    extra_args = ["--json"]
-
-    if args.out:
-        extra_args.extend(["--out", args.out])
-
-    return _with_cli_metadata(
-        _run_script("scripts/release_check.py", extra_args),
-        "release-check",
-    )
-
-
-def command_openai(args: argparse.Namespace) -> dict[str, Any]:
-    payload = _call_module_function(
-        "omega_runtime.openai_live",
-        ["run_openai_live", "run_openai_live_call"],
-        {
-            "prompt": args.prompt,
-            "model": args.model,
-            "live": args.live,
-            "max_output_tokens": args.max_output_tokens,
-        },
-    )
-
-    return _with_cli_metadata(payload, "openai")
-
-
-def command_all(_args: argparse.Namespace) -> dict[str, Any]:
-    steps = [
-        ("proof_bundle", command_proof_bundle, argparse.Namespace()),
-        ("replay", command_replay, argparse.Namespace()),
-        ("failure_lab", command_failure_lab, argparse.Namespace()),
-        ("evidence_pack", command_evidence_pack, argparse.Namespace()),
-        ("release_check", command_release_check, argparse.Namespace(out=None)),
+def _all_payload(args: argparse.Namespace) -> dict[str, Any]:
+    commands: list[tuple[str, Any, argparse.Namespace]] = [
+        ("proof-bundle", _proof_bundle_payload, argparse.Namespace()),
+        ("replay", _replay_payload, argparse.Namespace()),
+        ("failure-lab", _failure_lab_payload, argparse.Namespace()),
+        (
+            "evidence-pack",
+            _evidence_pack_payload,
+            argparse.Namespace(output_dir=None),
+        ),
+        ("release-check", _release_check_payload, argparse.Namespace(out=None)),
+        (
+            "openai",
+            _openai_payload,
+            argparse.Namespace(
+                live=False,
+                dry_run=True,
+                prompt=DEFAULT_OPENAI_PROMPT,
+                model=getattr(args, "model", "gpt-4.1-mini"),
+                max_output_tokens=getattr(args, "max_output_tokens", 300),
+            ),
+        ),
     ]
 
-    results: list[dict[str, Any]] = []
+    results: dict[str, Any] = {}
 
-    for step_name, handler, step_args in steps:
-        result = handler(step_args)
-        result["step"] = step_name
-        results.append(result)
+    for name, handler, command_args in commands:
+        results[name] = handler(command_args)
 
-    accepted = all(bool(item.get("accepted")) for item in results)
+    accepted = all(bool(value.get("accepted")) for value in results.values())
 
     return {
         "accepted": accepted,
         "cli_version": CLI_VERSION,
         "cli_command": "all",
-        "reason": "all checks completed" if accepted else "one or more checks failed",
-        "steps_total": len(results),
-        "steps_passed": sum(1 for item in results if item.get("accepted")),
-        "steps_failed": sum(1 for item in results if not item.get("accepted")),
+        "reason": (
+            "all consolidated commands passed"
+            if accepted
+            else "one or more consolidated commands failed"
+        ),
+        "generated_at": _utc_now(),
         "results": results,
     }
+
+
+def _add_json_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Emit machine-readable JSON output. "
+            "Kept for compatibility with helper scripts."
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -245,103 +338,104 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    proof_bundle = subparsers.add_parser(
+    proof = subparsers.add_parser(
         "proof-bundle",
         help="Generate and verify the proof bundle demo.",
     )
-    proof_bundle.set_defaults(handler=command_proof_bundle)
+    _add_json_flag(proof)
+    proof.set_defaults(handler=_proof_bundle_payload)
 
     replay = subparsers.add_parser(
         "replay",
         help="Run replay verifier demo.",
     )
-    replay.set_defaults(handler=command_replay)
+    _add_json_flag(replay)
+    replay.set_defaults(handler=_replay_payload)
 
-    failure_lab = subparsers.add_parser(
+    failure = subparsers.add_parser(
         "failure-lab",
         help="Run failure lab scenarios.",
     )
-    failure_lab.set_defaults(handler=command_failure_lab)
+    _add_json_flag(failure)
+    failure.set_defaults(handler=_failure_lab_payload)
 
-    evidence_pack = subparsers.add_parser(
+    evidence = subparsers.add_parser(
         "evidence-pack",
         help="Generate the evidence pack archive and report.",
     )
-    evidence_pack.set_defaults(handler=command_evidence_pack)
+    _add_json_flag(evidence)
+    evidence.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional output directory for evidence pack artifacts.",
+    )
+    evidence.set_defaults(handler=_evidence_pack_payload)
 
-    release_check = subparsers.add_parser(
+    release = subparsers.add_parser(
         "release-check",
         help="Run release hardening checks.",
     )
-
-    release_check.add_argument(
-
-        "--json",
-
-        action="store_true",
-
-        default=True,
-
-        help="Emit machine-readable JSON output. Kept for compatibility with helper scripts.",
-
-    )
-    release_check.add_argument(
+    _add_json_flag(release)
+    release.add_argument(
         "--out",
         default=None,
         help="Optional output path for release check report.",
     )
-    release_check.set_defaults(handler=command_release_check)
+    release.set_defaults(handler=_release_check_payload)
 
-    openai = subparsers.add_parser(
+    openai_parser = subparsers.add_parser(
         "openai",
         help="Run the OpenAI adapter in dry-run or live mode.",
     )
+    _add_json_flag(openai_parser)
 
-    openai.add_argument(
-
-        "--json",
-
-        action="store_true",
-
-        default=True,
-
-        help="Emit machine-readable JSON output. Kept for compatibility with helper scripts.",
-
-    )
-    openai_mode = openai.add_mutually_exclusive_group()
-    openai_mode.add_argument(
+    mode = openai_parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--live",
         action="store_true",
         help="Make a real OpenAI API call using OPENAI_API_KEY.",
     )
-    openai_mode.add_argument(
+    mode.add_argument(
         "--dry-run",
         action="store_true",
         help="Do not make a network call. This is the default.",
     )
-    openai.add_argument(
+
+    openai_parser.add_argument(
         "--prompt",
-        default="Explain the value of verifiable AI execution in one sentence.",
+        default=DEFAULT_OPENAI_PROMPT,
         help="Prompt to send to the OpenAI adapter.",
     )
-    openai.add_argument(
+    openai_parser.add_argument(
         "--model",
         default="gpt-4.1-mini",
         help="OpenAI model name.",
     )
-    openai.add_argument(
+    openai_parser.add_argument(
         "--max-output-tokens",
         type=int,
         default=300,
         help="Maximum output tokens.",
     )
-    openai.set_defaults(handler=command_openai)
+    openai_parser.set_defaults(handler=_openai_payload)
 
-    all_checks = subparsers.add_parser(
+    all_parser = subparsers.add_parser(
         "all",
         help="Run the main internal helper demos/checks behind one command.",
     )
-    all_checks.set_defaults(handler=command_all)
+    _add_json_flag(all_parser)
+    all_parser.add_argument(
+        "--model",
+        default="gpt-4.1-mini",
+        help="OpenAI model used for the dry-run OpenAI adapter check.",
+    )
+    all_parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=300,
+        help="Maximum output tokens for the OpenAI adapter check.",
+    )
+    all_parser.set_defaults(handler=_all_payload)
 
     return parser
 
@@ -360,58 +454,49 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if not hasattr(args, "handler"):
+    handler = getattr(args, "handler", None)
+
+    if handler is None:
         parser.print_help()
-        return 2
+        return 0
 
-    try:
-        payload = args.handler(args)
-    except Exception as exc:
-        payload = {
-            "accepted": False,
-            "cli_version": CLI_VERSION,
-            "reason": "command raised exception",
-            "error_type": type(exc).__name__,
-            "error": str(exc),
-        }
-
+    payload = handler(args)
     _print_json(payload)
-    return 0 if payload.get("accepted") else 1
+
+    return 0 if bool(payload.get("accepted")) else 1
+
+
+def verify_proof_main(argv: list[str] | None = None) -> int:
+    return main(["proof-bundle", *(argv or [])])
+
+
+def verify_trace_main(argv: list[str] | None = None) -> int:
+    return main(["replay", *(argv or [])])
+
+
+def system_verify_main(argv: list[str] | None = None) -> int:
+    return main(["failure-lab", *(argv or [])])
+
+
+def verify_episode_main(argv: list[str] | None = None) -> int:
+    return main(["evidence-pack", *(argv or [])])
+
+
+def audit_main(argv: list[str] | None = None) -> int:
+    return main(["release-check", *(argv or [])])
+
+
+__all__ = [
+    "CLI_VERSION",
+    "build_parser",
+    "main",
+    "audit_main",
+    "system_verify_main",
+    "verify_episode_main",
+    "verify_proof_main",
+    "verify_trace_main",
+]
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-# OMEGA v1.2.0 legacy CLI entrypoint compatibility
-#
-# These functions intentionally remain importable because older packaging
-# entrypoints and tests import them directly from omega_runtime.cli.
-# The consolidated CLI now routes users through `python -m omega_runtime.cli`,
-# but these wrappers preserve backward compatibility.
-
-def _legacy_entrypoint_removed(name: str) -> int:
-    print(
-        f"{name} is preserved for backward compatibility. "
-        "Use the consolidated CLI instead: python -m omega_runtime.cli --help"
-    )
-    return 0
-
-
-def audit_main() -> int:
-    return _legacy_entrypoint_removed("audit_main")
-
-
-def system_verify_main() -> int:
-    return _legacy_entrypoint_removed("system_verify_main")
-
-
-def verify_episode_main() -> int:
-    return _legacy_entrypoint_removed("verify_episode_main")
-
-
-def verify_proof_main() -> int:
-    return _legacy_entrypoint_removed("verify_proof_main")
-
-
-def verify_trace_main() -> int:
-    return _legacy_entrypoint_removed("verify_trace_main")

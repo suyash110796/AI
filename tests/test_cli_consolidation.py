@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import subprocess
@@ -59,3 +59,18 @@ def test_consolidated_cli_release_check_help_is_available():
     assert completed.returncode == 0, completed.stderr
     assert "release" in completed.stdout.lower()
     assert "--json" in completed.stdout
+
+def test_consolidated_cli_openai_dry_run_executes_without_api_key():
+    completed = run_cli("openai", "--dry-run", "--json")
+
+    assert completed.returncode == 0, completed.stderr
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["accepted"] is True
+    assert payload["cli_command"] == "openai"
+    assert payload["live"] is False
+    assert payload["mode"] == "dry_run"
+    assert payload["api_key_stored"] is False
+    assert "prompt_hash" in payload
+    assert "response_hash" in payload
