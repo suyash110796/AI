@@ -9,7 +9,7 @@ from pathlib import Path
 import omega_runtime.release_check as release_check
 
 
-EXPECTED_RELEASE_VERSION = "1.1.0"
+EXPECTED_RELEASE_VERSION = "1.2.0"
 
 EXPECTED_MILESTONE_TAGS = [
     "v0.1.0-stable",
