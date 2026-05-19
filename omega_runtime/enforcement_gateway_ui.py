@@ -847,7 +847,17 @@ def render_gateway_page() -> str:
         <section class="events">
             {event_html}
         </section>
-    </main>
+    
+        <section class="metric-clarity" data-ui-metric-clarity="OMEGA_UI_METRIC_CLARITY_V1">
+            <h2>How to read these gateway metrics</h2>
+            <p><strong>Important:</strong> These numbers are enforcement-decision counters, not model-quality scores.</p>
+            <ul>
+                <li><strong>Allowed</strong> means the request passed every configured gateway check before execution.</li>
+                <li><strong>Blocked</strong> means the gateway rejected the request before the OpenAI call.</li>
+                <li><strong>Top violation signals</strong> shows failed checks only. Non-actionable passed checks such as prompt_present are intentionally excluded.</li>
+            </ul>
+        </section>
+</main>
 </body>
 </html>
 """

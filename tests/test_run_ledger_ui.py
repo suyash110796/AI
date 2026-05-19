@@ -72,3 +72,13 @@ def test_run_ledger_ui_contains_transparency_sections():
     assert "Latest two-run comparison" in response.text
     assert "Machine-readable insight receipt" in response.text
     assert "Latest recorded runs" in response.text
+
+def test_run_ledger_ui_metric_clarity_copy():
+    response = client.get("/ui/run-ledger")
+
+    assert response.status_code == 200
+    assert "OMEGA_UI_METRIC_CLARITY_V1" in response.text
+    assert "audit counters, not model-quality scores" in response.text
+    assert "Stable-response prompt groups" in response.text
+    assert "Distinct response hashes" in response.text
+    assert "Same-prompt response drift" in response.text

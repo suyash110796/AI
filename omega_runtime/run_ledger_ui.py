@@ -327,7 +327,7 @@ def _render_prompt_groups(groups: list[dict[str, Any]]) -> str:
         "<thead>"
         "<tr>"
         "<th>Prompt hash</th><th>Runs</th><th>Live</th><th>Dry</th>"
-        "<th>Response variants</th><th>Changed?</th>"
+        "<th>Distinct response hashes</th><th>Changed?</th>"
         "</tr>"
         "</thead>"
         "<tbody>"
@@ -634,7 +634,7 @@ a {{ color: var(--blue); }}
     <div class="metric"><span>Total records</span><strong>{summary["records_found"]}</strong></div>
     <div class="metric"><span>Live API runs</span><strong>{summary["live_records"]}</strong></div>
     <div class="metric"><span>Dry runs</span><strong>{summary["dry_run_records"]}</strong></div>
-    <div class="metric"><span>Response variants</span><strong>{summary["response_variants"]}</strong></div>
+    <div class="metric"><span>Distinct response hashes</span><strong>{summary["response_variants"]}</strong></div>
   </div>
 
   <section>
@@ -663,7 +663,7 @@ a {{ color: var(--blue); }}
   <section>
     <h2>Outside-the-box insight: same prompt, response drift</h2>
     <p>
-      This table groups runs by <code>prompt_hash</code>. If response variants are greater than 1,
+      This table groups runs by <code>prompt_hash</code>. If distinct response hashes are greater than 1,
       the same request produced different AI outputs.
     </p>
     {prompt_groups_html}
@@ -683,6 +683,16 @@ a {{ color: var(--blue); }}
     <h2>Latest recorded runs</h2>
     {latest_records_html}
   </section>
+
+        <section class="metric-clarity" data-ui-metric-clarity="OMEGA_UI_METRIC_CLARITY_V1">
+            <h2>How to read these metrics</h2>
+            <p><strong>Important:</strong> These numbers are audit counters, not model-quality scores.</p>
+            <ul>
+                <li><strong>Same-prompt response drift</strong> means one prompt hash has produced more than one response hash in the selected ledger window.</li>
+                <li><strong>Stable-response prompt groups</strong> means prompt groups with exactly one distinct response hash. This is exact-hash stability, not proof of semantic correctness.</li>
+                <li><strong>Distinct response hashes</strong> counts exact output variants. Temperature, sampling, model changes, and prompt changes can all create new response hashes.</li>
+            </ul>
+        </section>
 </main>
 </body>
 </html>"""

@@ -55,3 +55,12 @@ def test_enforcement_gateway_routes_are_in_openapi():
     assert "/enforcement-gateway" in paths
     assert "/ui/enforcement-gateway" in paths
     assert "/enforcement-gateway/api/summary" in paths
+
+def test_enforcement_gateway_ui_metric_clarity_copy():
+    response = client.get("/enforcement-gateway")
+
+    assert response.status_code == 200
+    assert "OMEGA_UI_METRIC_CLARITY_V1" in response.text
+    assert "enforcement-decision counters, not model-quality scores" in response.text
+    assert "Gateway decision coverage" in response.text or "Allowed" in response.text
+    assert "Top violation signals" in response.text
