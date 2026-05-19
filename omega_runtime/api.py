@@ -1,4 +1,5 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+from omega_runtime.enforcement_gateway_ui import router as enforcement_gateway_ui_router
 
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -426,4 +427,5 @@ except Exception as exc:  # pragma: no cover - exposed for diagnostics
     RUN_LEDGER_UI_REGISTRATION_ERROR = exc
 
 app.include_router(run_ledger_router)
+app.include_router(enforcement_gateway_ui_router)
 
