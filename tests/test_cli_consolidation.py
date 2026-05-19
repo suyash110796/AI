@@ -74,3 +74,28 @@ def test_consolidated_cli_openai_dry_run_executes_without_api_key():
     assert payload["api_key_stored"] is False
     assert "prompt_hash" in payload
     assert "response_hash" in payload
+
+
+def test_consolidated_cli_openai_auto_records_run_ledger():
+    completed = run_cli(
+        "openai",
+        "--json",
+        "--dry-run",
+        "--prompt",
+        "Ledger auto-record smoke test.",
+        "--model",
+        "gpt-4.1-mini",
+        "--max-output-tokens",
+        "300",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["accepted"] is True
+    assert payload["ledger_recorded"] is True
+    assert payload["ledger_record"]["accepted"] is True
+    assert Path(payload["ledger_record"]["record_path"]).exists()
+    assert Path(payload["ledger_record"]["ledger_path"]).exists()
+    assert payload["ledger_record"]["record_file_sha256"]
