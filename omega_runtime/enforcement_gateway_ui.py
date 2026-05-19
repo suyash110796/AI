@@ -872,3 +872,294 @@ def enforcement_gateway_page_alias() -> HTMLResponse:
 @router.get("/enforcement-gateway/api/summary")
 def enforcement_gateway_summary() -> JSONResponse:
     return JSONResponse(build_gateway_summary())
+
+# OMEGA_GATEWAY_SORT_FILTER_V1_BEGIN
+# Adds a sortable/filterable Decision Explorer to the Enforcement Gateway console.
+# Kept self-contained so it does not disturb the existing gateway summary renderer.
+
+import inspect as _omega_gateway_sort_filter_inspect
+import json as _omega_gateway_sort_filter_json
+from pathlib import Path as _OmegaGatewaySortFilterPath
+from typing import Any as _OmegaGatewaySortFilterAny
+from fastapi.responses import HTMLResponse as _OmegaGatewaySortFilterHTMLResponse
+from fastapi.responses import JSONResponse as _OmegaGatewaySortFilterJSONResponse
+
+OMEGA_GATEWAY_SORT_FILTER_VERSION = "OMEGA_GATEWAY_SORT_FILTER_V1"
+
+
+def _omega_gateway_sort_filter_record_body(record: dict[str, _OmegaGatewaySortFilterAny]) -> dict[str, _OmegaGatewaySortFilterAny]:
+    """Load the detailed run payload referenced by a ledger row, if available."""
+    candidates: list[dict[str, _OmegaGatewaySortFilterAny]] = [record]
+
+    record_path = record.get("record_path")
+    if isinstance(record_path, str) and record_path:
+        path = _OmegaGatewaySortFilterPath(record_path)
+        if path.exists():
+            try:
+                loaded = _omega_gateway_sort_filter_json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    candidates.insert(0, loaded)
+            except Exception:
+                pass
+
+    for candidate in candidates:
+        for key in ("body", "payload", "report", "run", "record"):
+            nested = candidate.get(key)
+            if isinstance(nested, dict):
+                return nested
+        if isinstance(candidate.get("enforcement_gateway"), dict):
+            return candidate
+
+    return record
+
+
+def _omega_gateway_sort_filter_failed_checks(gateway: dict[str, _OmegaGatewaySortFilterAny]) -> list[str]:
+    failed: list[str] = []
+    for check in gateway.get("checks") or []:
+        if isinstance(check, dict) and check.get("passed") is False:
+            name = check.get("name")
+            if isinstance(name, str) and name:
+                failed.append(name)
+    for violation in gateway.get("violations") or []:
+        if isinstance(violation, dict):
+            name = violation.get("name")
+            if isinstance(name, str) and name and name not in failed:
+                failed.append(name)
+    return failed
+
+
+def _omega_gateway_sort_filter_rows() -> tuple[list[dict[str, _OmegaGatewaySortFilterAny]], int]:
+    ledger_path = _OmegaGatewaySortFilterPath("artifacts/openai_live/openai_run_ledger.jsonl")
+    rows: list[dict[str, _OmegaGatewaySortFilterAny]] = []
+    scanned = 0
+
+    if not ledger_path.exists():
+        return rows, scanned
+
+    for line in ledger_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = _omega_gateway_sort_filter_json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(record, dict):
+            continue
+
+        scanned += 1
+        body = _omega_gateway_sort_filter_record_body(record)
+        gateway = body.get("enforcement_gateway")
+        if not isinstance(gateway, dict):
+            continue
+
+        failed = _omega_gateway_sort_filter_failed_checks(gateway)
+        checks = gateway.get("checks") or []
+        checks_total = len([item for item in checks if isinstance(item, dict)])
+        checks_passed = len([item for item in checks if isinstance(item, dict) and item.get("passed") is True])
+
+        gateway_accepted = bool(gateway.get("accepted"))
+        openai_called = bool(body.get("openai_called"))
+        mode = str(body.get("mode") or record.get("mode") or gateway.get("mode") or "unknown")
+        status = "allowed" if gateway_accepted and openai_called else "blocked"
+        if gateway_accepted and not openai_called and not mode.startswith("blocked"):
+            status = "allowed"
+
+        rows.append(
+            {
+                "recorded_at": str(record.get("recorded_at") or body.get("generated_at") or gateway.get("generated_at") or ""),
+                "record_id": str(record.get("record_id") or ""),
+                "status": status,
+                "openai_called": openai_called,
+                "mode": mode,
+                "live": bool(body.get("live", record.get("live", False))),
+                "model": str(body.get("model") or record.get("model") or gateway.get("model") or ""),
+                "prompt_hash": str(body.get("prompt_hash") or record.get("prompt_hash") or gateway.get("prompt_hash") or ""),
+                "prompt_preview": str(body.get("prompt_preview") or gateway.get("prompt_preview") or ""),
+                "decision_hash": str(gateway.get("decision_hash") or ""),
+                "reason": str(gateway.get("reason") or body.get("reason") or ""),
+                "violations": failed,
+                "violation_count": len(failed),
+                "checks_passed": checks_passed,
+                "checks_total": checks_total,
+                "record_path": str(record.get("record_path") or ""),
+            }
+        )
+
+    return rows, scanned
+
+
+def _omega_gateway_sort_filter_api(
+    status: str = "all",
+    sort: str = "newest",
+    signal: str = "",
+    q: str = "",
+    limit: int = 25,
+) -> _OmegaGatewaySortFilterJSONResponse:
+    rows, scanned = _omega_gateway_sort_filter_rows()
+
+    normalized_status = (status or "all").strip().lower()
+    normalized_sort = (sort or "newest").strip().lower()
+    normalized_signal = (signal or "").strip().lower()
+    normalized_query = (q or "").strip().lower()
+
+    if normalized_status in {"allowed", "blocked"}:
+        rows = [row for row in rows if row["status"] == normalized_status]
+
+    if normalized_signal:
+        rows = [
+            row
+            for row in rows
+            if any(normalized_signal in str(item).lower() for item in row.get("violations", []))
+        ]
+
+    if normalized_query:
+        searchable_keys = ("record_id", "mode", "model", "prompt_hash", "prompt_preview", "decision_hash", "reason")
+        rows = [
+            row
+            for row in rows
+            if any(normalized_query in str(row.get(key, "")).lower() for key in searchable_keys)
+            or any(normalized_query in str(item).lower() for item in row.get("violations", []))
+        ]
+
+    if normalized_sort == "oldest":
+        rows.sort(key=lambda row: row.get("recorded_at", ""))
+    elif normalized_sort == "status":
+        rows.sort(key=lambda row: (row.get("status", ""), row.get("recorded_at", "")), reverse=True)
+    elif normalized_sort == "model":
+        rows.sort(key=lambda row: (row.get("model", ""), row.get("recorded_at", "")), reverse=True)
+    elif normalized_sort == "violations":
+        rows.sort(key=lambda row: (int(row.get("violation_count", 0)), row.get("recorded_at", "")), reverse=True)
+    else:
+        normalized_sort = "newest"
+        rows.sort(key=lambda row: row.get("recorded_at", ""), reverse=True)
+
+    limit = max(1, min(int(limit or 25), 200))
+    available_signals = sorted({signal for row in rows for signal in row.get("violations", []) if signal})
+
+    payload = {
+        "accepted": True,
+        "sort_filter_version": OMEGA_GATEWAY_SORT_FILTER_VERSION,
+        "records_scanned": scanned,
+        "rows_matched": len(rows),
+        "rows_returned": min(len(rows), limit),
+        "filters": {
+            "status": normalized_status,
+            "sort": normalized_sort,
+            "signal": normalized_signal,
+            "q": normalized_query,
+            "limit": limit,
+        },
+        "filter_options": {
+            "statuses": ["all", "allowed", "blocked"],
+            "sorts": ["newest", "oldest", "status", "model", "violations"],
+            "signals": available_signals,
+        },
+        "rows": rows[:limit],
+    }
+    return _OmegaGatewaySortFilterJSONResponse(payload)
+
+
+router.add_api_route(
+    "/enforcement-gateway/api/decisions",
+    _omega_gateway_sort_filter_api,
+    methods=["GET"],
+    response_class=_OmegaGatewaySortFilterJSONResponse,
+)
+
+
+def _omega_gateway_sort_filter_section() -> str:
+    return "\n".join(
+        [
+            '<section id="gateway-decision-explorer" class="panel" data-version="OMEGA_GATEWAY_SORT_FILTER_V1">',
+            '  <h2>Decision Explorer</h2>',
+            '  <p class="muted">Sort and filter actual Enforcement Gateway decisions recorded in the run ledger. This table separates allowed calls from blocked calls before the OpenAI adapter executes.</p>',
+            '  <div class="metric-line"><span>Console feature</span><strong>OMEGA_GATEWAY_SORT_FILTER_V1</strong></div>',
+            '  <form id="gateway-filter-form" class="gateway-filter-grid">',
+            '    <label>Status <select name="status"><option value="all">All</option><option value="allowed">Allowed</option><option value="blocked">Blocked</option></select></label>',
+            '    <label>Sort <select name="sort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="status">Status</option><option value="model">Model</option><option value="violations">Most violations</option></select></label>',
+            '    <label>Signal <input name="signal" placeholder="secret, model_allowed, ..." /></label>',
+            '    <label>Search <input name="q" placeholder="model, hash, reason, record id" /></label>',
+            '    <label>Limit <input name="limit" type="number" min="1" max="200" value="25" /></label>',
+            '    <button type="submit">Apply filters</button>',
+            '  </form>',
+            '  <div id="gateway-filter-summary" class="muted">Loading gateway decisions...</div>',
+            '  <div class="gateway-table-wrap">',
+            '    <table class="gateway-table">',
+            '      <thead><tr><th>Time</th><th>Status</th><th>OpenAI called?</th><th>Model</th><th>Signal</th><th>Reason</th><th>Prompt hash</th></tr></thead>',
+            '      <tbody id="gateway-decision-rows"><tr><td colspan="7">Loading...</td></tr></tbody>',
+            '    </table>',
+            '  </div>',
+            '  <script>',
+            '  (function () {',
+            '    const form = document.getElementById("gateway-filter-form");',
+            '    const rowsEl = document.getElementById("gateway-decision-rows");',
+            '    const summaryEl = document.getElementById("gateway-filter-summary");',
+            '    function esc(value) { return String(value ?? "").replace(/[&<>\"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\\"":"&quot;"}[ch])); }',
+            '    async function loadRows() {',
+            '      const params = new URLSearchParams(new FormData(form));',
+            '      const response = await fetch("/enforcement-gateway/api/decisions?" + params.toString());',
+            '      const payload = await response.json();',
+            '      summaryEl.textContent = `${payload.rows_returned} shown / ${payload.rows_matched} matched / ${payload.records_scanned} ledger rows scanned`; ',
+            '      if (!payload.rows.length) { rowsEl.innerHTML = "<tr><td colspan=\\"7\\">No gateway decisions matched the current filters.</td></tr>"; return; }',
+            '      rowsEl.innerHTML = payload.rows.map(row => `<tr><td>${esc(row.recorded_at)}</td><td><strong>${esc(row.status)}</strong></td><td>${row.openai_called ? "yes" : "no"}</td><td>${esc(row.model)}</td><td>${esc((row.violations || []).join(", ") || "none")}</td><td>${esc(row.reason)}</td><td><code>${esc(row.prompt_hash).slice(0, 16)}</code></td></tr>`).join("");',
+            '    }',
+            '    form.addEventListener("submit", function (event) { event.preventDefault(); loadRows(); });',
+            '    loadRows().catch(error => { rowsEl.innerHTML = `<tr><td colspan=\\"7\\">Failed to load decisions: ${esc(error)}</td></tr>`; });',
+            '  }());',
+            '  </script>',
+            '  <style>',
+            '    .gateway-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem;margin:1rem 0}',
+            '    .gateway-filter-grid label{display:flex;flex-direction:column;gap:.35rem;font-size:.9rem}',
+            '    .gateway-filter-grid input,.gateway-filter-grid select{padding:.55rem;border-radius:.6rem;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.55);color:inherit}',
+            '    .gateway-filter-grid button{padding:.65rem .9rem;border-radius:.7rem;border:1px solid rgba(45,212,191,.45);background:rgba(45,212,191,.14);color:inherit;font-weight:700;cursor:pointer}',
+            '    .gateway-table-wrap{overflow:auto;margin-top:1rem}',
+            '    .gateway-table{width:100%;border-collapse:collapse;font-size:.88rem}',
+            '    .gateway-table th,.gateway-table td{padding:.65rem;border-bottom:1px solid rgba(148,163,184,.18);text-align:left;vertical-align:top}',
+            '    .gateway-table code{font-size:.8rem}',
+            '  </style>',
+            '</section>',
+        ]
+    )
+
+
+def _omega_gateway_sort_filter_inject(page: str) -> str:
+    if OMEGA_GATEWAY_SORT_FILTER_VERSION in page:
+        return page
+    section = _omega_gateway_sort_filter_section()
+    if "</main>" in page:
+        return page.replace("</main>", section + "\n</main>", 1)
+    if "</body>" in page:
+        return page.replace("</body>", section + "\n</body>", 1)
+    return page + section
+
+
+def _omega_gateway_sort_filter_wrap_page(path: str) -> None:
+    original_endpoint = None
+    kept_routes = []
+    for route in list(router.routes):
+        if getattr(route, "path", None) == path and "GET" in getattr(route, "methods", set()):
+            original_endpoint = getattr(route, "endpoint", None)
+            continue
+        kept_routes.append(route)
+    router.routes[:] = kept_routes
+
+    async def _wrapped_gateway_page() -> _OmegaGatewaySortFilterHTMLResponse:
+        page = "<!doctype html><html><body><main><h1>OMEGA Enforcement Gateway Console</h1></main></body></html>"
+        if original_endpoint is not None:
+            result = original_endpoint()
+            if _omega_gateway_sort_filter_inspect.isawaitable(result):
+                result = await result
+            if hasattr(result, "body"):
+                page = result.body.decode("utf-8", "replace")
+            else:
+                page = str(result)
+        return _OmegaGatewaySortFilterHTMLResponse(_omega_gateway_sort_filter_inject(page))
+
+    router.add_api_route(path, _wrapped_gateway_page, methods=["GET"], response_class=_OmegaGatewaySortFilterHTMLResponse)
+
+
+_omega_gateway_sort_filter_wrap_page("/enforcement-gateway")
+_omega_gateway_sort_filter_wrap_page("/ui/enforcement-gateway")
+
+# OMEGA_GATEWAY_SORT_FILTER_V1_END
+
