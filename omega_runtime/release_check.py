@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 RELEASE_CHECK_VERSION = "OMEGA_RELEASE_CHECK_V1"
-RELEASE_VERSION = "1.4.0"
+RELEASE_VERSION = "1.4.2"
 
 REQUIRED_FILES = [
     "README.md",
@@ -41,6 +41,7 @@ MILESTONE_TAGS = [
     "v1.1.0-openai-live-adapter",
     "v1.2.0-cli-consolidation",
     "v1.3.0-run-ledger-ui-console",
+        "v1.4.0-enforcement-gateway",
     "v1.0.0",
 ]
 
