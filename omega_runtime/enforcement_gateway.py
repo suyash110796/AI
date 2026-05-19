@@ -392,3 +392,145 @@ def enforce_action(
         "receipt_write": receipt_write_result,
         "execution_result": execution_result,
     }
+
+
+def evaluate_openai_cli_request(
+    *,
+    prompt: str,
+    model: str,
+    live: bool,
+    max_output_tokens: int,
+) -> dict[str, object]:
+    """Evaluate whether an OpenAI CLI request is allowed before execution.
+
+    This is the enforcement-facing API used by the consolidated CLI.
+
+    Important:
+    - accepted=True means the OpenAI call may proceed.
+    - accepted=False means the OpenAI call must not be made.
+    - The decision object is evidence and can be written to the run ledger.
+    """
+    from datetime import datetime, timezone
+    import hashlib
+    import json
+    import re
+
+    gateway_version = "OMEGA_ENFORCEMENT_GATEWAY_V1"
+    operation = "openai_model_call"
+
+    prompt_text = prompt if isinstance(prompt, str) else ""
+    model_text = model if isinstance(model, str) else ""
+    token_value = int(max_output_tokens) if isinstance(max_output_tokens, int) else 0
+
+    allowed_models = {
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "gpt-4o-mini",
+        "gpt-4o",
+    }
+
+    secret_patterns = [
+        r"sk-[A-Za-z0-9_\-]{20,}",
+        r"sk-svcacct-[A-Za-z0-9_\-]{20,}",
+        r"OPENAI_API_KEY",
+        r"api[_\-\s]?key\s*[:=]",
+        r"password\s*[:=]",
+        r"secret\s*[:=]",
+        r"token\s*[:=]",
+    ]
+
+    normalized_prompt = prompt_text.strip()
+    prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+    prompt_preview = normalized_prompt[:160].replace("\n", " ")
+
+    secret_like_prompt = any(
+        re.search(pattern, prompt_text, flags=re.IGNORECASE)
+        for pattern in secret_patterns
+    )
+
+    if secret_like_prompt:
+        prompt_preview = "[REDACTED: prompt contains secret-like material]"
+
+    checks: list[dict[str, object]] = []
+    violations: list[dict[str, object]] = []
+
+    def add_check(name: str, passed: bool, reason: str) -> None:
+        checks.append(
+            {
+                "name": name,
+                "passed": bool(passed),
+                "reason": reason,
+            }
+        )
+        if not passed:
+            violations.append(
+                {
+                    "name": name,
+                    "reason": reason,
+                }
+            )
+
+    add_check(
+        "prompt_present",
+        bool(normalized_prompt),
+        "prompt must not be empty",
+    )
+
+    add_check(
+        "prompt_size_within_limit",
+        len(prompt_text) <= 8000,
+        "prompt must be 8000 characters or fewer",
+    )
+
+    add_check(
+        "model_allowed",
+        model_text in allowed_models,
+        "model must be in the allowed OpenAI model list",
+    )
+
+    add_check(
+        "max_output_tokens_within_limit",
+        1 <= token_value <= 1000,
+        "max_output_tokens must be between 1 and 1000",
+    )
+
+    add_check(
+        "prompt_does_not_contain_secret_like_material",
+        not secret_like_prompt,
+        "prompt must not contain API keys, passwords, secrets, or tokens",
+    )
+
+    accepted = len(violations) == 0
+
+    decision: dict[str, object] = {
+        "accepted": accepted,
+        "gateway_version": gateway_version,
+        "operation": operation,
+        "live": bool(live),
+        "mode": "live" if live else "dry_run",
+        "model": model_text,
+        "prompt_hash": prompt_hash,
+        "prompt_preview": prompt_preview,
+        "max_output_tokens": token_value,
+        "checks": checks,
+        "violations": violations,
+        "policy": {
+            "allowed_models": sorted(allowed_models),
+            "max_prompt_chars": 8000,
+            "max_output_tokens_min": 1,
+            "max_output_tokens_max": 1000,
+            "secret_material_blocked": True,
+        },
+        "reason": (
+            "enforcement gateway accepted request"
+            if accepted
+            else "enforcement gateway rejected request before OpenAI call"
+        ),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    decision["decision_hash"] = hashlib.sha256(
+        json.dumps(decision, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+    return decision

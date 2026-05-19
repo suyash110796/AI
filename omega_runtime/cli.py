@@ -243,7 +243,81 @@ def _with_cli_metadata(payload: dict[str, Any], command_name: str) -> dict[str, 
 
 
 def _openai_payload(args: argparse.Namespace) -> dict[str, Any]:
+    from datetime import datetime, timezone
+    import hashlib
+    import json
+
+    from omega_runtime.enforcement_gateway import evaluate_openai_cli_request
     from omega_runtime.openai_live import OpenAILiveRequest, run_openai_live
+
+    def _stable_hash(payload: dict[str, Any]) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def _record_to_ledger(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            from omega_runtime.run_ledger import write_run_record
+
+            record_result = write_run_record(payload, source="cli.openai.gateway")
+            payload["ledger_recorded"] = bool(record_result.get("accepted"))
+            payload["ledger_record"] = {
+                "accepted": record_result.get("accepted"),
+                "reason": record_result.get("reason"),
+                "record_id": record_result.get("record_id"),
+                "record_path": record_result.get("record_path"),
+                "ledger_path": record_result.get("ledger_path"),
+                "record_file_sha256": record_result.get("record_file_sha256"),
+            }
+        except Exception as exc:
+            payload["ledger_recorded"] = False
+            payload["ledger_record_error_type"] = type(exc).__name__
+            payload["ledger_record_error"] = str(exc)
+
+        return payload
+
+    gateway_decision = evaluate_openai_cli_request(
+        prompt=args.prompt,
+        model=args.model,
+        live=bool(args.live),
+        max_output_tokens=args.max_output_tokens,
+    )
+
+    if not gateway_decision.get("accepted"):
+        response_text = "BLOCKED: OpenAI call was not made because the Enforcement Gateway rejected the request."
+        response_hash = hashlib.sha256(response_text.encode("utf-8")).hexdigest()
+
+        payload: dict[str, Any] = {
+            "accepted": False,
+            "adapter_version": "OMEGA_OPENAI_LIVE_V1",
+            "api_key_stored": False,
+            "cli_command": "openai",
+            "cli_version": globals().get("CLI_VERSION", "OMEGA_CLI_CONSOLIDATION_V1"),
+            "enforced": True,
+            "enforcement_gateway": gateway_decision,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "live": bool(args.live),
+            "max_output_tokens": args.max_output_tokens,
+            "mode": "blocked_by_enforcement_gateway",
+            "model": args.model,
+            "openai_called": False,
+            "prompt_hash": gateway_decision.get("prompt_hash"),
+            "prompt_preview": gateway_decision.get("prompt_preview"),
+            "reason": gateway_decision.get("reason"),
+            "report_path": "artifacts\\openai_live\\openai_live_report.json",
+            "response_hash": response_hash,
+            "response_text": response_text,
+            "system_prompt_hash": None,
+        }
+        payload["aggregate_hash"] = _stable_hash(
+            {k: v for k, v in payload.items() if k != "aggregate_hash"}
+        )
+        return _record_to_ledger(payload)
 
     request = OpenAILiveRequest(
         prompt=args.prompt,
@@ -253,30 +327,11 @@ def _openai_payload(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     payload = _with_cli_metadata(run_openai_live(request), "openai")
+    payload["enforced"] = True
+    payload["enforcement_gateway"] = gateway_decision
+    payload["openai_called"] = True
 
-    # Every OpenAI CLI run is recorded into the run ledger.
-    # This includes both dry-run and live API calls.
-    try:
-        from omega_runtime.run_ledger import write_run_record
-
-        record_result = write_run_record(payload, source="cli.openai")
-
-        payload["ledger_recorded"] = bool(record_result.get("accepted"))
-        payload["ledger_record"] = {
-            "accepted": record_result.get("accepted"),
-            "reason": record_result.get("reason"),
-            "record_id": record_result.get("record_id"),
-            "record_path": record_result.get("record_path"),
-            "ledger_path": record_result.get("ledger_path"),
-            "record_file_sha256": record_result.get("record_file_sha256"),
-        }
-    except Exception as exc:
-        payload["ledger_recorded"] = False
-        payload["ledger_record_error_type"] = type(exc).__name__
-        payload["ledger_record_error"] = str(exc)
-
-    return payload
-
+    return _record_to_ledger(payload)
 def _all_payload(args: argparse.Namespace) -> dict[str, Any]:
     commands: list[tuple[str, Any, argparse.Namespace]] = [
         ("proof-bundle", _proof_bundle_payload, argparse.Namespace()),

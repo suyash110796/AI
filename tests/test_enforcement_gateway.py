@@ -168,3 +168,49 @@ def test_enforcement_receipt_writer_creates_unique_file(tmp_path):
     assert first["receipt_path"] != second["receipt_path"]
     assert first["receipt_file_sha256"]
     assert second["receipt_file_sha256"]
+
+
+
+def test_openai_cli_gateway_accepts_safe_request():
+    from omega_runtime.enforcement_gateway import evaluate_openai_cli_request
+
+    decision = evaluate_openai_cli_request(
+        prompt="Explain verifiable AI execution in one sentence.",
+        model="gpt-4.1-mini",
+        live=True,
+        max_output_tokens=64,
+    )
+
+    assert decision["accepted"] is True
+    assert decision["operation"] == "openai_model_call"
+    assert decision["mode"] == "live"
+    assert decision["decision_hash"]
+
+
+def test_openai_cli_gateway_rejects_blank_prompt():
+    from omega_runtime.enforcement_gateway import evaluate_openai_cli_request
+
+    decision = evaluate_openai_cli_request(
+        prompt="",
+        model="gpt-4.1-mini",
+        live=True,
+        max_output_tokens=64,
+    )
+
+    assert decision["accepted"] is False
+    assert decision["violations"]
+    assert decision["reason"] == "enforcement gateway rejected request before OpenAI call"
+
+
+def test_openai_cli_gateway_rejects_secret_like_prompt():
+    from omega_runtime.enforcement_gateway import evaluate_openai_cli_request
+
+    decision = evaluate_openai_cli_request(
+        prompt="Use this API key: sk-svcacct-example-secret-material-1234567890",
+        model="gpt-4.1-mini",
+        live=True,
+        max_output_tokens=64,
+    )
+
+    assert decision["accepted"] is False
+    assert decision["prompt_preview"] == "[REDACTED: prompt contains secret-like material]"

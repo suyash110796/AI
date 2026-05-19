@@ -99,3 +99,31 @@ def test_consolidated_cli_openai_auto_records_run_ledger():
     assert Path(payload["ledger_record"]["record_path"]).exists()
     assert Path(payload["ledger_record"]["ledger_path"]).exists()
     assert payload["ledger_record"]["record_file_sha256"]
+
+
+
+def test_consolidated_cli_openai_gateway_blocks_blank_prompt_before_call():
+    import json
+
+    completed = run_cli(
+        "openai",
+        "--json",
+        "--dry-run",
+        "--prompt",
+        "",
+        "--model",
+        "gpt-4.1-mini",
+        "--max-output-tokens",
+        "64",
+    )
+
+    assert completed.returncode != 0
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["accepted"] is False
+    assert payload["enforced"] is True
+    assert payload["openai_called"] is False
+    assert payload["mode"] == "blocked_by_enforcement_gateway"
+    assert payload["enforcement_gateway"]["accepted"] is False
+    assert payload["ledger_recorded"] is True
