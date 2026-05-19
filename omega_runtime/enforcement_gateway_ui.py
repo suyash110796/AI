@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+import re
+
 import html
 import json
 from collections import Counter
@@ -10,6 +12,62 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse
+
+
+NON_ACTIONABLE_TOP_VIOLATION_SIGNALS = {"prompt_present"}
+
+
+def _top_violation_signal_name(item: object) -> str:
+    if isinstance(item, dict):
+        return str(
+            item.get("name")
+            or item.get("signal")
+            or item.get("check")
+            or item.get("violation")
+            or ""
+        )
+    if isinstance(item, (list, tuple)) and item:
+        return str(item[0])
+    return str(item)
+
+
+def _filter_top_violation_signals(items: object) -> object:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if _top_violation_signal_name(item) not in NON_ACTIONABLE_TOP_VIOLATION_SIGNALS
+    ]
+
+
+def _filter_gateway_summary(summary: object) -> object:
+    if not isinstance(summary, dict):
+        return _filter_gateway_summary(summary)
+
+    for key in (
+        "top_violation_signals",
+        "top_violations",
+        "violation_signals",
+        "violation_counts",
+    ):
+        value = summary.get(key)
+        if isinstance(value, list):
+            summary[key] = _filter_top_violation_signals(value)
+
+    return _filter_gateway_summary(summary)
+
+
+def _strip_non_actionable_top_violation_rows(html_text: str) -> str:
+    for signal in NON_ACTIONABLE_TOP_VIOLATION_SIGNALS:
+        html_text = re.sub(
+            rf'<div class="metric-line">\s*<span>{re.escape(signal)}</span>\s*<strong>[^<]*</strong>\s*</div>',
+            "",
+            html_text,
+            flags=re.IGNORECASE,
+        )
+    return html_text
+
 
 
 router = APIRouter()
@@ -797,14 +855,10 @@ def render_gateway_page() -> str:
 
 @router.get("/enforcement-gateway", response_class=HTMLResponse)
 def enforcement_gateway_page() -> HTMLResponse:
-    return HTMLResponse(render_gateway_page())
-
-
+    return HTMLResponse(_strip_non_actionable_top_violation_rows(render_gateway_page()))
 @router.get("/ui/enforcement-gateway", response_class=HTMLResponse)
 def enforcement_gateway_page_alias() -> HTMLResponse:
-    return HTMLResponse(render_gateway_page())
-
-
+    return HTMLResponse(_strip_non_actionable_top_violation_rows(render_gateway_page()))
 @router.get("/enforcement-gateway/api/summary")
 def enforcement_gateway_summary() -> JSONResponse:
     return JSONResponse(build_gateway_summary())
