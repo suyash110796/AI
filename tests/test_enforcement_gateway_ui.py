@@ -64,3 +64,44 @@ def test_enforcement_gateway_ui_metric_clarity_copy():
     assert "enforcement-decision counters, not model-quality scores" in response.text
     assert "Gateway decision coverage" in response.text or "Allowed" in response.text
     assert "Top violation signals" in response.text
+
+# OMEGA_GATEWAY_SORT_FILTER_TESTS_V1_BEGIN
+
+def test_enforcement_gateway_page_contains_sort_filter_explorer():
+    response = client.get("/enforcement-gateway")
+
+    assert response.status_code == 200
+    assert "OMEGA_GATEWAY_SORT_FILTER_V1" in response.text
+    assert "Decision Explorer" in response.text
+    assert "/enforcement-gateway/api/decisions" in response.text
+    assert "Apply filters" in response.text
+
+
+def test_enforcement_gateway_sort_filter_api_exists():
+    response = client.get("/enforcement-gateway/api/decisions?status=all&sort=newest&limit=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["accepted"] is True
+    assert payload["sort_filter_version"] == "OMEGA_GATEWAY_SORT_FILTER_V1"
+    assert "records_scanned" in payload
+    assert "rows_matched" in payload
+    assert "rows_returned" in payload
+    assert "rows" in payload
+    assert isinstance(payload["rows"], list)
+    assert payload["filter_options"]["statuses"] == ["all", "allowed", "blocked"]
+    assert "newest" in payload["filter_options"]["sorts"]
+    assert "violations" in payload["filter_options"]["sorts"]
+
+
+def test_enforcement_gateway_sort_filter_api_blocks_bad_limit():
+    response = client.get("/enforcement-gateway/api/decisions?limit=9999")
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["filters"]["limit"] == 200
+
+# OMEGA_GATEWAY_SORT_FILTER_TESTS_V1_END
+
