@@ -234,39 +234,48 @@ def _build_openai_request(openai_live: Any, args: argparse.Namespace) -> Any:
     return request_class(**kwargs)
 
 
+def _with_cli_metadata(payload: dict[str, Any], command_name: str) -> dict[str, Any]:
+    """Attach standard consolidated CLI metadata to a command payload."""
+    enriched = dict(payload)
+    enriched["cli_command"] = command_name
+    enriched["cli_version"] = globals().get("CLI_VERSION", "OMEGA_CLI_CONSOLIDATION_V1")
+    return enriched
+
+
 def _openai_payload(args: argparse.Namespace) -> dict[str, Any]:
+    from omega_runtime.openai_live import OpenAILiveRequest, run_openai_live
+
+    request = OpenAILiveRequest(
+        prompt=args.prompt,
+        model=args.model,
+        live=bool(args.live),
+        max_output_tokens=args.max_output_tokens,
+    )
+
+    payload = _with_cli_metadata(run_openai_live(request), "openai")
+
+    # Every OpenAI CLI run is recorded into the run ledger.
+    # This includes both dry-run and live API calls.
     try:
-        openai_live = importlib.import_module("omega_runtime.openai_live")
-        runner = getattr(openai_live, "run_openai_live")
+        from omega_runtime.run_ledger import write_run_record
 
-        request = _build_openai_request(openai_live, args)
+        record_result = write_run_record(payload, source="cli.openai")
 
-        if isinstance(request, dict):
-            try:
-                result = runner(**request)
-            except TypeError:
-                result = runner(request)
-        else:
-            result = runner(request)
-
-        payload = _normalize_payload(
-            result,
-            fallback_reason="OpenAI adapter completed",
-        )
-        payload["cli_version"] = CLI_VERSION
-        payload["cli_command"] = "openai"
-        return payload
-
-    except Exception as exc:
-        return {
-            "accepted": False,
-            "cli_version": CLI_VERSION,
-            "cli_command": "openai",
-            "reason": "OpenAI adapter command failed",
-            "error_type": type(exc).__name__,
-            "error": str(exc),
+        payload["ledger_recorded"] = bool(record_result.get("accepted"))
+        payload["ledger_record"] = {
+            "accepted": record_result.get("accepted"),
+            "reason": record_result.get("reason"),
+            "record_id": record_result.get("record_id"),
+            "record_path": record_result.get("record_path"),
+            "ledger_path": record_result.get("ledger_path"),
+            "record_file_sha256": record_result.get("record_file_sha256"),
         }
+    except Exception as exc:
+        payload["ledger_recorded"] = False
+        payload["ledger_record_error_type"] = type(exc).__name__
+        payload["ledger_record_error"] = str(exc)
 
+    return payload
 
 def _all_payload(args: argparse.Namespace) -> dict[str, Any]:
     commands: list[tuple[str, Any, argparse.Namespace]] = [

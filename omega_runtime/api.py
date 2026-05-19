@@ -414,3 +414,13 @@ try:
     register_run_ledger_ui_routes(app)
 except Exception as exc:  # pragma: no cover - defensive startup fallback
     app.state.run_ledger_ui_registration_error = repr(exc)
+
+
+# OMEGA v1.3.0 run ledger UI routes.
+try:
+    from omega_runtime.run_ledger_ui import register_run_ledger_routes
+
+    register_run_ledger_routes(app)
+except Exception as exc:  # pragma: no cover - exposed for diagnostics
+    RUN_LEDGER_UI_REGISTRATION_ERROR = exc
+
