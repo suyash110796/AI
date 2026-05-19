@@ -15,6 +15,7 @@ from omega_runtime.core.replay_verifier import verify_replay_trace
 from omega_runtime.core.system_verifier import verify_runtime_system
 
 
+from omega_runtime.run_ledger_ui import router as run_ledger_router
 API_VERSION = "OMEGA_RUNTIME_API_V1"
 
 
@@ -424,3 +425,4 @@ try:
 except Exception as exc:  # pragma: no cover - exposed for diagnostics
     RUN_LEDGER_UI_REGISTRATION_ERROR = exc
 
+app.include_router(run_ledger_router)

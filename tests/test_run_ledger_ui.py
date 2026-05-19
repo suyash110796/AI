@@ -1,6 +1,7 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from omega_runtime.api import app
+
 
 client = TestClient(app)
 
@@ -10,6 +11,7 @@ def test_run_ledger_ui_page_exists():
 
     assert response.status_code == 200
     assert "OMEGA Run Ledger Console" in response.text
+    assert "OMEGA_RUN_LEDGER_UI_V1" in response.text
     assert "/run-ledger/api/summary" in response.text
 
 
@@ -17,7 +19,7 @@ def test_run_ledger_ui_alias_exists():
     response = client.get("/ui/run-ledger")
 
     assert response.status_code == 200
-    assert "OMEGA_RUN_LEDGER_UI_V1" in response.text
+    assert "OMEGA Run Ledger Console" in response.text
 
 
 def test_run_ledger_summary_endpoint_shape():
@@ -35,6 +37,8 @@ def test_run_ledger_summary_endpoint_shape():
     assert "latest_records" in payload
     assert "prompt_groups" in payload
     assert "comparison" in payload
+    assert "live_records" in payload
+    assert "dry_run_records" in payload
 
 
 def test_run_ledger_api_routes_are_in_openapi():
@@ -62,9 +66,10 @@ def test_run_ledger_dry_run_route_records_without_api_key():
     response = client.post(
         "/run-ledger/api/record-dry-run",
         data={
-            "prompt": "Dry-run route smoke test.",
+            "prompt": "Dry-run UI route smoke test.",
             "model": "gpt-4.1-mini",
             "max_output_tokens": "16",
+            "json": "1",
         },
     )
 
@@ -75,14 +80,4 @@ def test_run_ledger_dry_run_route_records_without_api_key():
     assert payload["live"] is False
     assert payload["mode"] == "dry_run"
     assert payload["ledger_recorded"] is True
-    assert payload["message"] == "Dry-run OpenAI run recorded"
-
-
-def test_run_ledger_live_route_is_registered_without_calling_paid_api():
-    response = client.get("/openapi.json")
-
-    assert response.status_code == 200
-    paths = response.json()["paths"]
-
-    assert "/run-ledger/api/record-live" in paths
-    assert "/run-ledger/api/record-live-run" in paths
+    assert payload["ledger_record"]["accepted"] is True

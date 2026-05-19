@@ -1,26 +1,37 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
-from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+
+from omega_runtime.openai_live import OpenAILiveRequest, run_openai_live
+from omega_runtime.run_ledger import write_run_record
 
 RUN_LEDGER_UI_VERSION = "OMEGA_RUN_LEDGER_UI_V1"
-
 DEFAULT_PROMPT = "Explain the value of verifiable AI execution in one sentence for a non-technical executive."
 DEFAULT_MODEL = "gpt-4.1-mini"
 DEFAULT_MAX_OUTPUT_TOKENS = 300
-
 LEDGER_PATH = Path("artifacts/openai_live/openai_run_ledger.jsonl")
+
+router = APIRouter()
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _short_hash(value: Any, size: int = 12) -> str:
+    text = str(value or "")
+    if len(text) <= size:
+        return text
+    return text[:size]
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -33,80 +44,67 @@ def _safe_int(value: Any, default: int) -> int:
         return default
 
 
-def _read_ledger_records(path: Path = LEDGER_PATH) -> list[dict[str, Any]]:
-    if not path.exists():
+def _safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "json"}
+
+
+def _load_records(limit: int | None = None) -> list[dict[str, Any]]:
+    if not LEDGER_PATH.exists():
         return []
 
     records: list[dict[str, Any]] = []
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped:
+    for line in LEDGER_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
             continue
         try:
-            payload = json.loads(stripped)
+            item = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict):
-            records.append(payload)
+        if isinstance(item, dict):
+            records.append(item)
 
-    records.sort(key=lambda item: str(item.get("recorded_at", "")), reverse=True)
+    records.sort(key=lambda record: str(record.get("recorded_at", "")), reverse=True)
+    if limit is not None:
+        return records[:limit]
     return records
 
 
-def _prompt_groups(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-
+def _group_by_prompt(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
-        prompt_hash = str(record.get("prompt_hash") or "UNKNOWN_PROMPT_HASH")
-        response_hash = str(record.get("response_hash") or "UNKNOWN_RESPONSE_HASH")
-        mode = str(record.get("mode") or "unknown")
+        grouped[str(record.get("prompt_hash") or "unknown")].append(record)
 
-        if prompt_hash not in grouped:
-            grouped[prompt_hash] = {
-                "prompt_hash": prompt_hash,
-                "records": 0,
-                "live_records": 0,
-                "dry_run_records": 0,
-                "response_hashes": set(),
-                "latest_recorded_at": record.get("recorded_at"),
-                "latest_record_id": record.get("record_id"),
-            }
-
-        group = grouped[prompt_hash]
-        group["records"] += 1
-        group["response_hashes"].add(response_hash)
-        group["latest_recorded_at"] = group["latest_recorded_at"] or record.get("recorded_at")
-        group["latest_record_id"] = group["latest_record_id"] or record.get("record_id")
-
-        if mode == "live" or record.get("live") is True:
-            group["live_records"] += 1
-        elif mode == "dry_run" or record.get("live") is False:
-            group["dry_run_records"] += 1
-
-    result: list[dict[str, Any]] = []
-
-    for group in grouped.values():
-        response_hashes = sorted(group["response_hashes"])
-        result.append(
+    groups: list[dict[str, Any]] = []
+    for prompt_hash, group_records in grouped.items():
+        response_hashes = sorted({str(item.get("response_hash") or "") for item in group_records if item.get("response_hash")})
+        modes = Counter(str(item.get("mode") or "unknown") for item in group_records)
+        live_count = sum(1 for item in group_records if bool(item.get("live")))
+        latest = max(group_records, key=lambda item: str(item.get("recorded_at", "")))
+        groups.append(
             {
-                "prompt_hash": group["prompt_hash"],
-                "records": group["records"],
-                "live_records": group["live_records"],
-                "dry_run_records": group["dry_run_records"],
-                "unique_response_hashes": len(response_hashes),
+                "prompt_hash": prompt_hash,
+                "prompt_hash_short": _short_hash(prompt_hash),
+                "records": len(group_records),
+                "response_variants": len(response_hashes),
                 "response_hashes": response_hashes,
-                "same_prompt_different_responses": len(response_hashes) > 1,
-                "latest_recorded_at": group["latest_recorded_at"],
-                "latest_record_id": group["latest_record_id"],
+                "live_records": live_count,
+                "dry_run_records": len(group_records) - live_count,
+                "modes": dict(modes),
+                "latest_record_id": latest.get("record_id"),
+                "latest_recorded_at": latest.get("recorded_at"),
+                "latest_mode": latest.get("mode"),
+                "latest_response_hash": latest.get("response_hash"),
             }
         )
 
-    result.sort(key=lambda item: str(item.get("latest_recorded_at") or ""), reverse=True)
-    return result
+    groups.sort(key=lambda group: (group["records"], group.get("latest_recorded_at") or ""), reverse=True)
+    return groups
 
 
-def _comparison(records: list[dict[str, Any]]) -> dict[str, Any]:
+def _compare_latest(records: list[dict[str, Any]]) -> dict[str, Any]:
     if len(records) < 2:
         return {
             "accepted": False,
@@ -114,39 +112,43 @@ def _comparison(records: list[dict[str, Any]]) -> dict[str, Any]:
             "records_found": len(records),
         }
 
-    latest = records[0]
-    previous = records[1]
-
-    latest_prompt_hash = latest.get("prompt_hash")
-    previous_prompt_hash = previous.get("prompt_hash")
-    latest_response_hash = latest.get("response_hash")
-    previous_response_hash = previous.get("response_hash")
+    latest, previous = records[0], records[1]
+    same_prompt = latest.get("prompt_hash") == previous.get("prompt_hash")
+    same_response = latest.get("response_hash") == previous.get("response_hash")
+    same_mode = latest.get("mode") == previous.get("mode")
+    same_model = latest.get("model") == previous.get("model")
 
     return {
         "accepted": True,
-        "reason": "latest two records compared",
+        "reason": "latest two runs compared",
         "latest_record_id": latest.get("record_id"),
         "previous_record_id": previous.get("record_id"),
         "latest_mode": latest.get("mode"),
         "previous_mode": previous.get("mode"),
-        "latest_live": latest.get("live"),
-        "previous_live": previous.get("live"),
-        "same_prompt_hash": latest_prompt_hash == previous_prompt_hash,
-        "same_response_hash": latest_response_hash == previous_response_hash,
-        "latest_prompt_hash": latest_prompt_hash,
-        "previous_prompt_hash": previous_prompt_hash,
-        "latest_response_hash": latest_response_hash,
-        "previous_response_hash": previous_response_hash,
+        "latest_live": bool(latest.get("live")),
+        "previous_live": bool(previous.get("live")),
+        "same_prompt_hash": same_prompt,
+        "same_response_hash": same_response,
+        "same_mode": same_mode,
+        "same_model": same_model,
+        "interpretation": (
+            "same request produced a different result"
+            if same_prompt and not same_response
+            else "same request produced the same result"
+            if same_prompt and same_response
+            else "different requests were compared"
+        ),
     }
 
 
-def run_ledger_summary() -> dict[str, Any]:
-    records = _read_ledger_records()
-    prompt_groups = _prompt_groups(records)
-    latest_records = records[:25]
-
-    live_records = sum(1 for record in records if record.get("live") is True or record.get("mode") == "live")
-    dry_run_records = sum(1 for record in records if record.get("live") is False or record.get("mode") == "dry_run")
+def build_run_ledger_summary(limit: int = 50) -> dict[str, Any]:
+    all_records = _load_records()
+    latest_records = all_records[:limit]
+    prompt_groups = _group_by_prompt(all_records)
+    live_records = sum(1 for item in all_records if bool(item.get("live")))
+    dry_run_records = len(all_records) - live_records
+    response_variants = len({str(item.get("response_hash") or "") for item in all_records if item.get("response_hash")})
+    prompt_variants = len({str(item.get("prompt_hash") or "") for item in all_records if item.get("prompt_hash")})
 
     return {
         "accepted": True,
@@ -154,412 +156,284 @@ def run_ledger_summary() -> dict[str, Any]:
         "generated_at": _utc_now(),
         "ledger_path": str(LEDGER_PATH),
         "ledger_exists": LEDGER_PATH.exists(),
-        "records_found": len(records),
-        "live_records": live_records,
-        "dry_run_records": dry_run_records,
+        "records_found": len(all_records),
+        "records_returned": len(latest_records),
         "records": latest_records,
         "latest_records": latest_records,
+        "live_records": live_records,
+        "dry_run_records": dry_run_records,
+        "prompt_variants": prompt_variants,
+        "response_variants": response_variants,
         "prompt_groups": prompt_groups,
-        "comparison": _comparison(records),
+        "comparison": _compare_latest(all_records),
     }
 
 
-async def _form_payload(request: Request) -> dict[str, Any]:
-    content_type = request.headers.get("content-type", "")
-
-    if "application/json" in content_type:
-        try:
-            body = await request.json()
-            if isinstance(body, dict):
-                return body
-        except Exception:
-            return {}
-
-    try:
-        form = await request.form()
-        return dict(form)
-    except Exception:
+async def _request_payload(request: Request) -> dict[str, Any]:
+    body = await request.body()
+    if not body:
         return {}
 
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(body.decode("utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except json.JSONDecodeError:
+            return {}
 
-async def _run_openai_and_record(request: Request, *, live: bool) -> dict[str, Any]:
-    from omega_runtime.openai_live import OpenAILiveRequest, run_openai_live
-    from omega_runtime.run_ledger import write_run_record
-
-    form = await _form_payload(request)
-
-    prompt = str(form.get("prompt") or DEFAULT_PROMPT).strip() or DEFAULT_PROMPT
-    model = str(form.get("model") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    max_output_tokens = _safe_int(form.get("max_output_tokens"), DEFAULT_MAX_OUTPUT_TOKENS)
-
-    openai_request = OpenAILiveRequest(
-        prompt=prompt,
-        model=model,
-        live=live,
-        max_output_tokens=max_output_tokens,
-    )
-
-    report = dict(run_openai_live(openai_request))
-    report["ui_command"] = "run-ledger-live-openai" if live else "run-ledger-dry-run-openai"
-    report["ledger_ui_version"] = RUN_LEDGER_UI_VERSION
-
-    source = "ui.live_openai" if live else "ui.dry_run_openai"
-    record_result = write_run_record(report, source=source)
-
-    report["ledger_recorded"] = bool(record_result.get("accepted"))
-    report["ledger_record"] = record_result
-    report["summary"] = run_ledger_summary()
-
-    if live:
-        report["message"] = "Live OpenAI run recorded"
-        report["reason"] = report.get("reason") or "Live OpenAI run recorded"
-    else:
-        report["message"] = "Dry-run OpenAI run recorded"
-        report["reason"] = report.get("reason") or "Dry-run OpenAI run recorded"
-
-    return report
+    # Avoid FastAPI Form(...) so the app does not require python-multipart.
+    parsed = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+    return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
-def _json_pretty(payload: Any) -> str:
-    return html.escape(json.dumps(payload, indent=2, sort_keys=True, default=str))
+def _html_escape(value: Any) -> str:
+    return html.escape(str(value if value is not None else ""), quote=True)
 
 
-def _short(value: Any, length: int = 14) -> str:
-    text = str(value or "")
-    if len(text) <= length:
-        return text
-    return text[:length]
+def _json_pretty(value: Any) -> str:
+    return _html_escape(json.dumps(value, indent=2, sort_keys=True, default=str))
 
 
-def _record_cards(records: list[dict[str, Any]]) -> str:
+def _run_cards(records: list[dict[str, Any]]) -> str:
     if not records:
-        return """
-        <article class="card muted">
-            <h3>No run records yet</h3>
-            <p>Run a dry-run or LIVE OpenAI request from this console, or run the CLI with <code>python -m omega_runtime.cli openai --live</code>.</p>
-        </article>
-        """
+        return '<article class="empty-card">No runs recorded yet. Use one of the buttons above.</article>'
 
     cards: list[str] = []
-
-    for record in records[:25]:
-        mode = html.escape(str(record.get("mode") or "unknown"))
+    for record in records[:12]:
         live = bool(record.get("live"))
-        badge_class = "badge live" if live else "badge dry"
-        accepted = html.escape(str(record.get("accepted")))
-        record_id = html.escape(str(record.get("record_id") or ""))
-        recorded_at = html.escape(str(record.get("recorded_at") or ""))
-        model = html.escape(str(record.get("model") or ""))
-        prompt_hash = html.escape(_short(record.get("prompt_hash"), 18))
-        response_hash = html.escape(_short(record.get("response_hash"), 18))
-        aggregate_hash = html.escape(_short(record.get("aggregate_hash"), 18))
-        record_path = html.escape(str(record.get("record_path") or ""))
-
+        mode = _html_escape(record.get("mode") or "unknown")
+        badge = "LIVE" if live else "DRY RUN"
+        record_id = _html_escape(record.get("record_id") or "unknown")
+        prompt_hash = _html_escape(_short_hash(record.get("prompt_hash")))
+        response_hash = _html_escape(_short_hash(record.get("response_hash")))
+        aggregate_hash = _html_escape(_short_hash(record.get("aggregate_hash")))
+        record_path = _html_escape(record.get("record_path") or "")
+        recorded_at = _html_escape(record.get("recorded_at") or "")
+        source = _html_escape(record.get("source") or "unknown")
+        model = _html_escape(record.get("model") or "unknown")
         cards.append(
-            f"""
-            <article class="card">
-                <div class="card-head">
-                    <span class="{badge_class}">{mode}</span>
-                    <strong>{record_id}</strong>
+            f'''
+            <article class="run-card {'live' if live else 'dry'}">
+                <div class="run-card-top">
+                    <span class="badge {'badge-live' if live else 'badge-dry'}">{badge}</span>
+                    <span class="muted">{recorded_at}</span>
                 </div>
-                <div class="grid">
-                    <div><span>Accepted</span><b>{accepted}</b></div>
-                    <div><span>Model</span><b>{model}</b></div>
-                    <div><span>Recorded</span><b>{recorded_at}</b></div>
-                    <div><span>Prompt hash</span><b>{prompt_hash}</b></div>
-                    <div><span>Response hash</span><b>{response_hash}</b></div>
-                    <div><span>Aggregate hash</span><b>{aggregate_hash}</b></div>
+                <h3>{record_id}</h3>
+                <div class="grid-mini">
+                    <div><span>Mode</span><strong>{mode}</strong></div>
+                    <div><span>Model</span><strong>{model}</strong></div>
+                    <div><span>Prompt</span><code>{prompt_hash}</code></div>
+                    <div><span>Response</span><code>{response_hash}</code></div>
+                    <div><span>Aggregate</span><code>{aggregate_hash}</code></div>
+                    <div><span>Source</span><strong>{source}</strong></div>
                 </div>
                 <p class="path">{record_path}</p>
             </article>
-            """
+            '''
         )
-
     return "\n".join(cards)
 
 
-def _render_html(message: str | None = None) -> str:
-    summary = run_ledger_summary()
-    records = summary.get("records", [])
-    comparison = summary.get("comparison", {})
-    prompt_groups = summary.get("prompt_groups", [])
+def _prompt_group_rows(groups: list[dict[str, Any]]) -> str:
+    if not groups:
+        return '<tr><td colspan="6">No prompt groups yet.</td></tr>'
 
-    escaped_message = html.escape(message or "")
+    rows: list[str] = []
+    for group in groups[:10]:
+        changed = "YES" if group.get("response_variants", 0) > 1 else "NO"
+        rows.append(
+            "<tr>"
+            f"<td><code>{_html_escape(group.get('prompt_hash_short'))}</code></td>"
+            f"<td>{_html_escape(group.get('records'))}</td>"
+            f"<td>{_html_escape(group.get('live_records'))}</td>"
+            f"<td>{_html_escape(group.get('dry_run_records'))}</td>"
+            f"<td>{_html_escape(group.get('response_variants'))}</td>"
+            f"<td><strong>{changed}</strong></td>"
+            "</tr>"
+        )
+    return "\n".join(rows)
 
-    return f"""<!doctype html>
+
+def render_run_ledger_page(notice: str | None = None) -> str:
+    summary = build_run_ledger_summary(limit=50)
+    records = summary["latest_records"]
+    comparison = summary["comparison"]
+
+    css = """
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: #07111f; color: #e8f3ff; }
+    main { max-width: 1220px; margin: 0 auto; padding: 32px; }
+    .hero { padding: 28px; border-radius: 28px; background: linear-gradient(135deg, rgba(45,212,191,.16), rgba(96,165,250,.12)); border: 1px solid rgba(148,163,184,.24); }
+    .eyebrow { color: #5eead4; font-weight: 800; letter-spacing: .08em; font-size: 12px; text-transform: uppercase; }
+    h1 { margin: 8px 0 8px; font-size: 42px; line-height: 1.05; }
+    h2 { margin-top: 0; }
+    p { color: #b8c7d9; }
+    a { color: #93c5fd; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 22px 0; }
+    .metric, .panel, .run-card, .empty-card { border: 1px solid rgba(148,163,184,.22); border-radius: 22px; background: rgba(15,23,42,.82); box-shadow: 0 20px 70px rgba(0,0,0,.22); }
+    .metric { padding: 18px; }
+    .metric span { display:block; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .metric strong { display:block; font-size: 30px; margin-top: 8px; }
+    .panel { padding: 22px; margin-top: 18px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    form { display: grid; gap: 10px; }
+    input { width: 100%; box-sizing: border-box; border: 1px solid rgba(148,163,184,.3); border-radius: 14px; padding: 12px 14px; background: #0b1220; color: #e2e8f0; }
+    button { border: 0; border-radius: 14px; padding: 12px 16px; font-weight: 800; cursor: pointer; color: #06111f; }
+    .dry-button { background: #93c5fd; }
+    .live-button { background: #5eead4; }
+    .warning { padding: 12px 14px; border-radius: 14px; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.32); color: #fde68a; }
+    .run-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .run-card { padding: 16px; }
+    .run-card.live { border-color: rgba(94,234,212,.44); }
+    .run-card.dry { border-color: rgba(147,197,253,.34); }
+    .run-card-top { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .badge { border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 900; letter-spacing:.05em; }
+    .badge-live { background: rgba(94,234,212,.16); color: #99f6e4; }
+    .badge-dry { background: rgba(147,197,253,.14); color: #bfdbfe; }
+    .muted { color: #94a3b8; font-size: 12px; }
+    .grid-mini { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .grid-mini div { padding: 10px; border-radius: 14px; background: rgba(2,6,23,.46); }
+    .grid-mini span { display:block; color:#94a3b8; font-size: 11px; text-transform:uppercase; }
+    code { color: #c4b5fd; word-break: break-all; }
+    .path { font-size: 12px; word-break: break-all; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 18px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid rgba(148,163,184,.16); }
+    th { color:#93c5fd; font-size: 12px; text-transform: uppercase; letter-spacing:.08em; }
+    pre { white-space: pre-wrap; word-break: break-word; padding: 16px; border-radius: 18px; background: #020617; border: 1px solid rgba(148,163,184,.16); }
+    @media (max-width: 900px) { .cards, .actions, .run-grid { grid-template-columns: 1fr; } h1 { font-size: 32px; } main { padding: 18px; } }
+    """
+
+    notice_html = f'<section class="panel warning"><strong>{_html_escape(notice)}</strong></section>' if notice else ""
+
+    return f'''<!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <title>OMEGA Run Ledger Console</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-        :root {{
-            color-scheme: dark;
-            --bg: #08111f;
-            --panel: #101c2f;
-            --panel2: #13243d;
-            --text: #e5eefc;
-            --muted: #9fb0c8;
-            --line: rgba(255,255,255,0.12);
-            --good: #34d399;
-            --warn: #fbbf24;
-            --accent: #38bdf8;
-            --danger: #fb7185;
-        }}
-        * {{ box-sizing: border-box; }}
-        body {{
-            margin: 0;
-            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background:
-                radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 34rem),
-                radial-gradient(circle at top right, rgba(52, 211, 153, 0.12), transparent 30rem),
-                var(--bg);
-            color: var(--text);
-        }}
-        main {{
-            width: min(1180px, calc(100vw - 32px));
-            margin: 0 auto;
-            padding: 32px 0 56px;
-        }}
-        .hero {{
-            padding: 28px;
-            border: 1px solid var(--line);
-            border-radius: 28px;
-            background: rgba(16, 28, 47, 0.78);
-            box-shadow: 0 24px 70px rgba(0,0,0,0.30);
-        }}
-        .hero h1 {{
-            margin: 0 0 10px;
-            font-size: clamp(30px, 5vw, 56px);
-            letter-spacing: -0.05em;
-        }}
-        .hero p {{ color: var(--muted); max-width: 900px; line-height: 1.6; }}
-        .version {{ color: var(--accent); font-weight: 800; }}
-        .actions {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 22px;
-        }}
-        form {{
-            border: 1px solid var(--line);
-            background: rgba(19, 36, 61, 0.86);
-            border-radius: 22px;
-            padding: 18px;
-        }}
-        label {{
-            display: block;
-            color: var(--muted);
-            font-size: 13px;
-            margin: 10px 0 6px;
-        }}
-        textarea, input {{
-            width: 100%;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            padding: 11px 12px;
-            background: rgba(8,17,31,0.9);
-            color: var(--text);
-            outline: none;
-        }}
-        textarea {{ min-height: 92px; resize: vertical; }}
-        button {{
-            margin-top: 14px;
-            width: 100%;
-            border: 0;
-            border-radius: 16px;
-            padding: 13px 16px;
-            font-weight: 900;
-            cursor: pointer;
-            color: #04111f;
-            background: var(--accent);
-        }}
-        .live-button {{
-            background: linear-gradient(135deg, var(--good), var(--warn));
-        }}
-        .stats {{
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 14px;
-            margin: 18px 0;
-        }}
-        .stat, .card, .panel {{
-            border: 1px solid var(--line);
-            border-radius: 22px;
-            background: rgba(16, 28, 47, 0.72);
-            padding: 18px;
-        }}
-        .stat span, .grid span {{ color: var(--muted); font-size: 12px; display:block; }}
-        .stat b {{ display:block; font-size: 28px; margin-top: 4px; }}
-        .records {{
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 14px;
-        }}
-        .card-head {{
-            display:flex;
-            gap: 12px;
-            align-items:center;
-            justify-content:space-between;
-            margin-bottom: 14px;
-        }}
-        .badge {{
-            display:inline-flex;
-            border-radius: 999px;
-            padding: 5px 10px;
-            font-size: 12px;
-            font-weight: 900;
-        }}
-        .badge.live {{ background: rgba(52,211,153,0.16); color: var(--good); }}
-        .badge.dry {{ background: rgba(251,191,36,0.16); color: var(--warn); }}
-        .grid {{
-            display:grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }}
-        .grid b {{ font-size: 13px; overflow-wrap:anywhere; }}
-        .path {{
-            color: var(--muted);
-            font-size: 12px;
-            overflow-wrap:anywhere;
-        }}
-        pre {{
-            white-space: pre-wrap;
-            overflow-wrap:anywhere;
-            background: rgba(8,17,31,0.92);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 16px;
-            color: #c7d2fe;
-        }}
-        .message {{
-            margin: 18px 0;
-            padding: 14px 16px;
-            border-radius: 18px;
-            border: 1px solid rgba(52,211,153,0.4);
-            background: rgba(52,211,153,0.12);
-            color: var(--good);
-            font-weight: 800;
-        }}
-        .api-links {{
-            color: var(--muted);
-            font-size: 13px;
-            margin-top: 10px;
-        }}
-        .api-links code {{ color: var(--text); }}
-        @media (max-width: 820px) {{
-            .actions, .stats, .grid {{ grid-template-columns: 1fr; }}
-        }}
-    </style>
+    <style>{css}</style>
 </head>
 <body>
-    <main>
-        <section class="hero">
-            <div class="version">{RUN_LEDGER_UI_VERSION}</div>
-            <h1>OMEGA Run Ledger Console</h1>
-            <p>
-                Run OpenAI from the UI, record every result into the ledger, and compare whether the same prompt produced the same or different output.
-                API: <code>/run-ledger/api/summary</code>. LIVE action: <code>/run-ledger/api/record-live-run</code>.
-            </p>
+<main>
+    <section class="hero">
+        <div class="eyebrow">{RUN_LEDGER_UI_VERSION}</div>
+        <h1>OMEGA Run Ledger Console</h1>
+        <p>Visible evidence for AI execution: what was asked, whether it was live or simulated, what came back, and whether the same request produced the same or different result.</p>
+        <p>Machine summary endpoint: <a href="/run-ledger/api/summary">/run-ledger/api/summary</a></p>
+    </section>
 
-            {f'<div class="message">{escaped_message}</div>' if escaped_message else ''}
+    {notice_html}
 
-            <div class="stats">
-                <div class="stat"><span>Total records</span><b>{summary.get("records_found", 0)}</b></div>
-                <div class="stat"><span>LIVE records</span><b>{summary.get("live_records", 0)}</b></div>
-                <div class="stat"><span>Dry-run records</span><b>{summary.get("dry_run_records", 0)}</b></div>
-                <div class="stat"><span>Prompt groups</span><b>{len(prompt_groups)}</b></div>
-            </div>
+    <section class="cards">
+        <div class="metric"><span>Total records</span><strong>{summary['records_found']}</strong></div>
+        <div class="metric"><span>Live API runs</span><strong>{summary['live_records']}</strong></div>
+        <div class="metric"><span>Dry runs</span><strong>{summary['dry_run_records']}</strong></div>
+        <div class="metric"><span>Response variants</span><strong>{summary['response_variants']}</strong></div>
+    </section>
 
-            <div class="actions">
-                <form method="post" action="/run-ledger/api/record-dry-run-ui">
-                    <h2>Dry-run record</h2>
-                    <p class="api-links">No API call. Records a simulated run.</p>
-                    <label>Prompt</label>
-                    <textarea name="prompt">{html.escape(DEFAULT_PROMPT)}</textarea>
-                    <label>Model</label>
-                    <input name="model" value="{html.escape(DEFAULT_MODEL)}" />
-                    <label>Max output tokens</label>
-                    <input name="max_output_tokens" value="{DEFAULT_MAX_OUTPUT_TOKENS}" />
-                    <button type="submit">Run dry-run + Record</button>
-                </form>
+    <section class="panel actions">
+        <div>
+            <h2>Run dry-run + record</h2>
+            <p>No network call. Useful for proving the ledger path and UI flow.</p>
+            <form method="post" action="/run-ledger/api/record-dry-run">
+                <input name="prompt" value="{_html_escape(DEFAULT_PROMPT)}" />
+                <input name="model" value="{_html_escape(DEFAULT_MODEL)}" />
+                <input name="max_output_tokens" value="{DEFAULT_MAX_OUTPUT_TOKENS}" />
+                <button class="dry-button" type="submit">Run dry-run + record</button>
+            </form>
+        </div>
+        <div>
+            <h2>Run LIVE OpenAI + Record</h2>
+            <p>Uses OPENAI_API_KEY from your shell. The key is not stored in the ledger.</p>
+            <p class="warning">This can spend API credits. Use small token limits while testing.</p>
+            <form method="post" action="/run-ledger/api/record-live-run">
+                <input name="prompt" value="{_html_escape(DEFAULT_PROMPT)}" />
+                <input name="model" value="{_html_escape(DEFAULT_MODEL)}" />
+                <input name="max_output_tokens" value="64" />
+                <button class="live-button" type="submit">Run LIVE OpenAI + record</button>
+            </form>
+        </div>
+    </section>
 
-                <form method="post" action="/run-ledger/api/record-live-run">
-                    <h2>LIVE OpenAI record</h2>
-                    <p class="api-links">Uses <code>OPENAI_API_KEY</code>. This is an actual API call.</p>
-                    <label>Prompt</label>
-                    <textarea name="prompt">{html.escape(DEFAULT_PROMPT)}</textarea>
-                    <label>Model</label>
-                    <input name="model" value="{html.escape(DEFAULT_MODEL)}" />
-                    <label>Max output tokens</label>
-                    <input name="max_output_tokens" value="{DEFAULT_MAX_OUTPUT_TOKENS}" />
-                    <button class="live-button" type="submit" title="Run LIVE OpenAI + record">Run LIVE OpenAI + Record</button>
-                    <span style="display:none">Run LIVE OpenAI + record</span>
-                </form>
-            </div>
-        </section>
+    <section class="panel">
+        <h2>Outside-the-box insight: same prompt, response drift</h2>
+        <p>This table groups runs by prompt_hash. If response variants are greater than 1, the same request produced different AI outputs.</p>
+        <table>
+            <thead><tr><th>Prompt hash</th><th>Runs</th><th>Live</th><th>Dry</th><th>Response variants</th><th>Changed?</th></tr></thead>
+            <tbody>{_prompt_group_rows(summary['prompt_groups'])}</tbody>
+        </table>
+    </section>
 
-        <section class="panel" style="margin-top:18px;">
-            <h2>Latest comparison</h2>
-            <pre>{_json_pretty(comparison)}</pre>
-        </section>
+    <section class="panel">
+        <h2>Latest two-run comparison</h2>
+        <pre>{_json_pretty(comparison)}</pre>
+    </section>
 
-        <section class="panel" style="margin-top:18px;">
-            <h2>Latest run records</h2>
-            <div class="records">
-                {_record_cards(records)}
-            </div>
-        </section>
-
-        <section class="panel" style="margin-top:18px;">
-            <h2>Prompt groups</h2>
-            <pre>{_json_pretty(prompt_groups[:12])}</pre>
-        </section>
-    </main>
+    <section class="panel">
+        <h2>Latest recorded runs</h2>
+        <div class="run-grid">{_run_cards(records)}</div>
+    </section>
+</main>
 </body>
-</html>
-"""
+</html>'''
 
 
-def register_run_ledger_routes(app: Any) -> None:
-    @app.get("/run-ledger", response_class=HTMLResponse)
-    def run_ledger_page(request: Request) -> HTMLResponse:
-        message = request.query_params.get("message")
-        return HTMLResponse(_render_html(message))
+async def _record_openai_run(request: Request, *, live: bool) -> Response:
+    payload = await _request_payload(request)
+    prompt = str(payload.get("prompt") or DEFAULT_PROMPT)
+    model = str(payload.get("model") or DEFAULT_MODEL)
+    max_output_tokens = _safe_int(payload.get("max_output_tokens"), DEFAULT_MAX_OUTPUT_TOKENS)
 
-    @app.get("/ui/run-ledger", response_class=HTMLResponse)
-    def run_ledger_page_alias(request: Request) -> HTMLResponse:
-        message = request.query_params.get("message")
-        return HTMLResponse(_render_html(message))
-
-    @app.get("/run-ledger/api/summary")
-    def run_ledger_summary_endpoint() -> JSONResponse:
-        return JSONResponse(run_ledger_summary())
-
-    @app.post("/run-ledger/api/record-dry-run")
-    async def record_dry_run(request: Request) -> JSONResponse:
-        payload = await _run_openai_and_record(request, live=False)
-        payload["message"] = "Dry-run OpenAI run recorded"
-        return JSONResponse(payload)
-
-    @app.post("/run-ledger/api/record-dry-run-ui")
-    async def record_dry_run_ui(request: Request) -> RedirectResponse:
-        await _run_openai_and_record(request, live=False)
-        return RedirectResponse(
-            "/ui/run-ledger?message=Dry-run%20OpenAI%20run%20recorded",
-            status_code=303,
+    report = run_openai_live(
+        OpenAILiveRequest(
+            prompt=prompt,
+            model=model,
+            live=live,
+            max_output_tokens=max_output_tokens,
         )
+    )
+    report["ui_action"] = "record_live_run" if live else "record_dry_run"
+    report["ledger_ui_version"] = RUN_LEDGER_UI_VERSION
 
-    @app.post("/run-ledger/api/record-live")
-    async def record_live_run(request: Request) -> JSONResponse:
-        payload = await _run_openai_and_record(request, live=True)
-        payload["message"] = "Live OpenAI run recorded"
-        return JSONResponse(payload)
+    record_result = write_run_record(report, source="run_ledger_ui.live" if live else "run_ledger_ui.dry_run")
+    report["ledger_recorded"] = bool(record_result.get("accepted"))
+    report["ledger_record"] = record_result
+    report["summary"] = build_run_ledger_summary(limit=20)
 
-    @app.post("/run-ledger/api/record-live-run")
-    async def record_live_run_ui(request: Request) -> RedirectResponse:
-        await _run_openai_and_record(request, live=True)
-        return RedirectResponse(
-            "/ui/run-ledger?message=Live%20OpenAI%20run%20recorded",
-            status_code=303,
-        )
+    wants_json = _safe_bool(payload.get("json")) or "application/json" in request.headers.get("accept", "").lower()
+    if wants_json:
+        return JSONResponse(report)
+
+    target = "/ui/run-ledger?notice=" + ("Live+OpenAI+run+recorded" if live else "Dry-run+recorded")
+    return RedirectResponse(target, status_code=303)
+
+
+@router.get("/run-ledger", response_class=HTMLResponse)
+async def run_ledger_page(request: Request) -> HTMLResponse:
+    return HTMLResponse(render_run_ledger_page(request.query_params.get("notice")))
+
+
+@router.get("/ui/run-ledger", response_class=HTMLResponse)
+async def run_ledger_page_alias(request: Request) -> HTMLResponse:
+    return HTMLResponse(render_run_ledger_page(request.query_params.get("notice")))
+
+
+@router.get("/run-ledger/api/summary")
+async def run_ledger_summary() -> JSONResponse:
+    return JSONResponse(build_run_ledger_summary(limit=50))
+
+
+@router.post("/run-ledger/api/record-dry-run", response_model=None)
+async def record_dry_run(request: Request) -> Response:
+    return await _record_openai_run(request, live=False)
+
+
+@router.post("/run-ledger/api/record-live", response_model=None)
+async def record_live(request: Request) -> Response:
+    return await _record_openai_run(request, live=True)
+
+
+@router.post("/run-ledger/api/record-live-run", response_model=None)
+async def record_live_run(request: Request) -> Response:
+    return await _record_openai_run(request, live=True)
