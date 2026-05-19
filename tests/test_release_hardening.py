@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 import omega_runtime.release_check as release_check
 
 
-EXPECTED_RELEASE_VERSION = "1.3.0"
+EXPECTED_RELEASE_VERSION = "1.4.0"
 
 EXPECTED_MILESTONE_TAGS = [
     "v0.1.0-stable",
@@ -24,6 +24,7 @@ EXPECTED_MILESTONE_TAGS = [
     "v1.0.0-rc1-release-hardening",
     "v1.0.0",
     "v1.2.0-cli-consolidation",
+    "v1.3.0-run-ledger-ui-console",
 ]
 
 
