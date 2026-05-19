@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -426,3 +426,4 @@ except Exception as exc:  # pragma: no cover - exposed for diagnostics
     RUN_LEDGER_UI_REGISTRATION_ERROR = exc
 
 app.include_router(run_ledger_router)
+
